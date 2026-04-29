@@ -1,0 +1,47 @@
+{
+  "version": "1.0.0",
+  "defaultAction": "deny",
+  "allowedDomains": [
+    "trifolium.co.il",
+    "bara.co.il",
+    "ajcn.nutrition.org",
+    "nccih.nih.gov",
+    "naturopedia.com",
+    "medlineplus.gov"
+  ],
+  "rules": {
+    "allowSubdomains": true,
+    "allowHttp": false,
+    "requireHttps": true,
+    "noPaywallBypass": true,
+    "noLoginBypass": true,
+    "requireCitationUrls": true,
+    "maxPagesPerTask": 20,
+    "maxRequestsPerMinute": 30
+  },
+  "domainOverrides": {
+    "naturopedia.com": {
+      "allowPublicPagesOnly": true,
+      "blockedPathPatterns": [
+        "/login",
+        "/account",
+        "/subscribe",
+        "/membership",
+        "/premium",
+        "/payment"
+      ]
+    },
+    "trifolium.co.il": {
+      "allowPublicPagesOnly": true
+    },
+    "bara.co.il": {
+      "allowPublicPagesOnly": true
+    }
+  },
+  "blockedDomains": [],
+  "responsePolicy": {
+    "onBlockedSource": "source_unavailable",
+    "onNoAllowedResults": "no_allowed_sources_found",
+    "includePolicyReason": true
+  }
+}
