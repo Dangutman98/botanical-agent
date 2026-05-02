@@ -1,4 +1,4 @@
-FROM public.ecr.aws/lambda/nodejs:20 AS builder
+FROM public.ecr.aws/docker/library/node:20-slim AS builder
 
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -8,7 +8,7 @@ COPY . .
 RUN npm install lightningcss-linux-x64-gnu lightningcss-linux-x64-musl @tailwindcss/oxide-linux-x64-gnu --save-optional
 RUN npm run build
 
-FROM public.ecr.aws/lambda/nodejs:20
+FROM public.ecr.aws/docker/library/node:20-slim
 
 WORKDIR /app
 
@@ -29,4 +29,6 @@ ENV PORT=3000
 ENV AWS_LWA_PORT=3000
 ENV NODE_ENV=production
 
+# Use the adapter as the entrypoint to bridge Lambda and Next.js
+ENTRYPOINT ["/opt/extensions/lambda-adapter"]
 CMD ["node", "/app/node_modules/.bin/next", "start", "-p", "3000"]
