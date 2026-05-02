@@ -14,12 +14,15 @@ WORKDIR /app
 # Copy Lambda Web Adapter
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.0 /lambda-adapter /usr/local/bin/lambda-adapter
 
-# Copy standalone output (includes pruned node_modules)
+# Copy standalone output
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
+# Crucial: Bind to 0.0.0.0 so Lambda can reach it
 ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+ENV HOST=0.0.0.0
 ENV AWS_LWA_PORT=3000
 ENV NODE_ENV=production
 
