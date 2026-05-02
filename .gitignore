@@ -45,3 +45,6 @@ terraform/.terraform
 terraform/*.tfstate
 terraform/*.tfstate.backup
 terraform/plan.out
+
+.vercel
+.env*.local

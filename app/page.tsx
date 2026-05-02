@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api/chat';
+
 type ChatMessage = {
   id: string;
   role: 'user' | 'assistant';
@@ -106,7 +108,7 @@ export default function Chat() {
     setError(null);
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, threadId }),
