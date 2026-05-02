@@ -87,7 +87,7 @@ resource "aws_lambda_function" "app" {
   package_type  = "Image"
   architectures = ["x86_64"]
 
-  image_uri    = "${aws_ecr_repository.app.repository_uri}:latest"
+  image_uri    = "${aws_ecr_repository.app.repository_url}:latest"
   image_config {
     entry_point = ["/app/node_modules/aws-lambda-web-adapter/bin/start"]
     command     = ["node", "/app/node_modules/.bin/next", "start", "-p", "3000"]
