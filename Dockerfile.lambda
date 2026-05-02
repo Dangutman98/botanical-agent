@@ -12,7 +12,7 @@ FROM public.ecr.aws/docker/library/node:20-slim
 
 WORKDIR /app
 
-# Copy Lambda Web Adapter binary to /usr/local/bin (runs as PID 1, not extension)
+# Copy Lambda Web Adapter binary to /usr/local/bin (runs as PID 1)
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.0 /lambda-adapter /usr/local/bin/lambda-adapter
 
 # Install production dependencies
@@ -28,6 +28,8 @@ COPY --from=builder /app/postcss.config.mjs ./postcss.config.mjs
 ENV PORT=3000
 ENV AWS_LWA_PORT=3000
 ENV NODE_ENV=production
+ENV AWS_LWA_INVOKE_MODE=BUFFERED
+ENV AWS_LWA_READINESS_CHECK_PORT=3000
 
 # Use adapter as entrypoint to bridge Lambda and Next.js
 ENTRYPOINT ["/usr/local/bin/lambda-adapter"]
