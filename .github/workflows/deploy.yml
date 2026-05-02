@@ -38,6 +38,12 @@ jobs:
             -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/botanical-agent-prod:latest \
             .
 
+      - name: Create ECR repo if missing
+        run: |
+          aws ecr create-repository \
+            --repository-name botanical-agent-prod \
+            --region ${{ env.AWS_REGION }} || true
+
       - name: Push to ECR
         run: |
           docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/botanical-agent-prod:latest
