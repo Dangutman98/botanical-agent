@@ -53,6 +53,12 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      - name: Create S3 backend if missing
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          aws s3api head-bucket --bucket botanical-agent-terraform-state-${{ secrets.AWS_ACCOUNT_ID }} 2>/dev/null || \
+          aws s3 mb s3://botanical-agent-terraform-state-${{ secrets.AWS_ACCOUNT_ID }} --region ${{ env.AWS_REGION }} || true
+
       - name: Terraform Init
         working-directory: ${{ env.TF_DIR }}
         run: |
@@ -64,18 +70,13 @@ jobs:
 
       - name: Terraform Import (skip if imported)
         working-directory: ${{ env.TF_DIR }}
-        run: |
-          terraform import aws_ecr_repository.app botanical-agent-prod 2>/dev/null || true
-
-      - name: Create S3 backend if missing
-        working-directory: ${{ env.TF_DIR }}
-        run: |
-          aws s3api head-bucket --bucket botanical-agent-terraform-state-${{ secrets.AWS_ACCOUNT_ID }} 2>/dev/null || \
-          aws s3 mb s3://botanical-agent-terraform-state-${{ secrets.AWS_ACCOUNT_ID }} --region ${{ env.AWS_REGION }} || true
+        run: terraform import -input=false aws_ecr_repository.app botanical-agent-prod 2>/dev/null || true
+        env:
+          TF_VAR_groq_api_key: dummy
 
       - name: Terraform Apply
         working-directory: ${{ env.TF_DIR }}
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve -input=false
         env:
           TF_VAR_groq_api_key: ${{ secrets.GROQ_API_KEY }}
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
