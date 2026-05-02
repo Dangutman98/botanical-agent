@@ -68,11 +68,13 @@ jobs:
             -backend-config="key=terraform.tfstate" \
             -reconfigure
 
-      - name: Terraform Import (skip if imported)
+      - name: Terraform Import (if needed)
         working-directory: ${{ env.TF_DIR }}
-        run: terraform import -input=false aws_ecr_repository.app botanical-agent-prod 2>/dev/null || true
+        run: |
+          terraform state list | grep aws_ecr_repository.app || terraform import aws_ecr_repository.app botanical-agent-prod
         env:
           TF_VAR_groq_api_key: dummy
+          TF_IN_AUTOMATION: true
 
       - name: Terraform Apply
         working-directory: ${{ env.TF_DIR }}
