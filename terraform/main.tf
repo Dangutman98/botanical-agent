@@ -88,13 +88,6 @@ resource "aws_lambda_function" "app" {
   architectures = ["x86_64"]
 
   image_uri    = "${aws_ecr_repository.app.repository_url}:latest"
-  image_config {
-    # Use 'node' directly to start the Next.js server
-    # The Lambda Web Adapter extension (at /opt/extensions/lambda-adapter) 
-    # handles the Lambda interface and forwards to port 3000
-    entry_point = ["/var/lang/bin/node"]
-    command     = ["/app/node_modules/.bin/next", "start", "-p", "3000"]
-  }
 
   environment {
     variables = {
