@@ -62,6 +62,11 @@ jobs:
             -backend-config="key=terraform.tfstate" \
             -reconfigure
 
+      - name: Terraform Import (skip if imported)
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform import aws_ecr_repository.app botanical-agent-prod 2>/dev/null || true
+
       - name: Create S3 backend if missing
         working-directory: ${{ env.TF_DIR }}
         run: |
