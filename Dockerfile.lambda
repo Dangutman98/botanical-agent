@@ -14,11 +14,8 @@ WORKDIR /app
 # Copy Lambda Web Adapter
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.0 /lambda-adapter /usr/local/bin/lambda-adapter
 
-# Copy standalone server
+# Copy standalone server (includes the CORRECT pruned node_modules)
 COPY --from=builder /app/.next/standalone ./
-
-# CRITICAL: Copy node_modules so the server has its dependencies
-COPY --from=builder /app/node_modules ./node_modules
 
 # Copy static assets
 COPY --from=builder /app/.next/static ./.next/static
