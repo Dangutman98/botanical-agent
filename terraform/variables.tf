@@ -14,4 +14,5 @@ variable "groq_api_key" {
   description = "Groq API key for the botanical assistant"
   type        = string
   sensitive   = true
+  default     = "managed-manually"
 }

@@ -5,11 +5,11 @@ terraform {
       version = "~> 5.0"
     }
   }
-
   backend "s3" {
-    bucket = "botanical-agent-terraform-state"
-    key    = "terraform.tfstate"
-    region = "us-east-1"
+    bucket       = "botanical-agent-tf-state-dan-001"
+    key          = "terraform.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true
   }
 }
 
@@ -23,6 +23,20 @@ locals {
   tags = {
     Name        = local.name
     Environment = local.environment
+  }
+}
+
+# S3 Bucket for Terraform State
+resource "aws_s3_bucket" "terraform_state" {
+  bucket = "botanical-agent-tf-state-dan-001"
+
+  tags = local.tags
+}
+
+resource "aws_s3_bucket_versioning" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+  versioning_configuration {
+    status = "Enabled"
   }
 }
 
@@ -44,11 +58,11 @@ resource "aws_ecr_lifecycle_policy" "app" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Keep only last 5 images"
+      description  = "Keep only last 3 images"
       selection = {
-        tagStatus     = "any"
-        countType     = "imageCountMoreThan"
-        countNumber   = 5
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 3
       }
       action = {
         type = "expire"
@@ -87,7 +101,7 @@ resource "aws_lambda_function" "app" {
   package_type  = "Image"
   architectures = ["x86_64"]
 
-  image_uri    = "${aws_ecr_repository.app.repository_url}:latest"
+  image_uri = "${aws_ecr_repository.app.repository_url}:latest"
 
   environment {
     variables = {
@@ -95,6 +109,10 @@ resource "aws_lambda_function" "app" {
       PORT         = "3000"
       GROQ_API_KEY = var.groq_api_key
     }
+  }
+
+  lifecycle {
+    ignore_changes = [environment]
   }
 
   tags = local.tags
@@ -110,15 +128,15 @@ resource "aws_lambda_function_url" "app" {
   cors {
     allow_origins = ["*"]
     allow_methods = ["*"]
-    allow_headers = ["Content-Type", "Authorization"]
-    max_age       = 3600
+    allow_headers = ["*"]
+    max_age       = 86400
   }
 }
 
 resource "aws_lambda_permission" "url" {
-  statement_id  = "AllowFunctionURLInvoke"
-  action        = "lambda:InvokeFunctionUrl"
-  function_name = aws_lambda_function.app.function_name
-  principal     = "*"
+  statement_id           = "AllowFunctionURLInvoke"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.app.function_name
+  principal              = "*"
   function_url_auth_type = aws_lambda_function_url.app.authorization_type
 }
