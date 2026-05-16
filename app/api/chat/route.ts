@@ -1,4 +1,5 @@
 import Groq from 'groq-sdk';
+import type { ChatCompletionMessageParam, ChatCompletionTool } from 'groq-sdk/resources/chat/completions';
 import { browseBotanicalSites } from '@/lib/agent/browser-tool';
 
 const SYSTEM_PROMPT = `You are a direct, expert botanical assistant.
@@ -6,17 +7,16 @@ Give concise, accurate plant guidance based ONLY on the provided sources.
 
 CRITICAL RULES:
 1. NEVER tell the user to "visit a website" or click a link.
-2. FOCUS ON THERAPEUTIC VALUE: Explain exactly HOW the plant helps with the user's specific problem based on the text. DO NOT give botanical trivia or geographical history.
-3. You are strictly forbidden from inventing information.
-4. Respond ONLY in Hebrew. ABSOLUTELY NO Chinese, Japanese, or Korean characters.
-5. NEVER place URLs inline inside your text response.
+2. FOCUS ON SPECIFIC PLANTS: You MUST name the actual specific herbs/plants found in the text (e.g., "בקופה", "רודיולה", "ג'ינקו", "ויטניה").
+3. DO NOT LIST WEBSITE MENUS: Ignore generic site categories like "חליטות צמחים", "פטריות בריאות", "צמחי מרפא עתיקים", or "שמנים אתריים". Extract the actual therapeutic plants mentioned in the article body!
+4. If the source text does not mention specific plant names, respond with "המאמרים שנמצאו לא ציינו שמות ספציפיים של צמחים". Do not invent plants.
+5. Respond ONLY in Hebrew. ABSOLUTELY NO Chinese, Japanese, or Korean characters.
 
 FORMATTING SOURCES (CRITICAL):
 Do NOT use Markdown link syntax like [text](url).
 Always end your answer with a "מקורות:" section.
-List ONLY the specific, actual sources that provided the information.
-Format each source as a simple text bullet: * Site Name - https://domain.com
-Do not invent sources.`;
+You MUST list EVERY source that contributed to your answer. If you reviewed 6 sources and extracted plants from 4 of them, list all 4.
+Format each source as a simple text bullet: * Site Name - https://domain.com`;
 
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
       return Response.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    const messages: any[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+    const messages: ChatCompletionMessageParam[] = [{ role: 'system', content: SYSTEM_PROMPT }];
 
     if (history && Array.isArray(history)) {
       history.forEach((msg) => {
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
       messages: messages,
       model: GROQ_MODEL,
       temperature: 0.1,
-      tools: [searchTool as any],
+      tools: [searchTool as unknown as ChatCompletionTool],
       tool_choice: 'auto',
     });
 
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
       const toolCall = responseMessage.tool_calls[0];
       
       // Trust the LLM to format the keyword correctly based on the new strict Tool description
-      let rawKeyword = JSON.parse(toolCall.function.arguments).search_keyword;
+      const rawKeyword = JSON.parse(toolCall.function.arguments).search_keyword;
       
       // DEVOPS FIX: Regex Bouncer - Allow ONLY Hebrew letters and spaces. Strip everything else.
       let cleanKeyword = rawKeyword.replace(/[^א-ת\s]/g, '').trim();
@@ -98,7 +98,7 @@ export async function POST(req: Request) {
       const allContext = sites.length > 0
         ? sites.map((m) => {
             let cleanUrl = m.url;
-            try { cleanUrl = new URL(m.url).origin; } catch(e){} 
+            try { cleanUrl = new URL(m.url).origin; } catch{} 
             return `SOURCE: ${m.title} (${cleanUrl})\n${m.content}\n`;
           }).join('\n')
         : 'No relevant sources were found.';

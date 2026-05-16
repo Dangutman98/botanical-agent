@@ -4,7 +4,7 @@ export interface BrowseResult {
   content: string;
 }
 
-export async function browseBotanicalSites(query: string, groqApiKey?: string): Promise<BrowseResult[]> {
+export async function browseBotanicalSites(query: string, _groqApiKey?: string): Promise<BrowseResult[]> {
   console.info(`[browser-tool] 1. Initiating Jina AI Search for keyword: "${query}"`);
   const results: BrowseResult[] = [];
   
@@ -43,8 +43,8 @@ export async function browseBotanicalSites(query: string, groqApiKey?: string): 
       }
 
       for (const [index, item] of data.data.entries()) {
-        // Stop if we already have 4 good results
-        if (results.length >= 4) break;
+        // Stop if we already have 6 good results
+        if (results.length >= 6) break;
 
         console.info(`[browser-tool] 7. Inspecting item ${index + 1}: URL=${item.url}`);
         
