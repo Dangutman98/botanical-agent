@@ -79,15 +79,24 @@ export async function POST(req: Request) {
     if (responseMessage?.tool_calls && responseMessage.tool_calls.length > 0) {
       const toolCall = responseMessage.tool_calls[0];
       
-      // Trust the LLM to format the keyword correctly based on the new strict Tool description
-      const rawKeyword = JSON.parse(toolCall.function.arguments).search_keyword;
+      let rawKeyword = "ריכוז"; // Default fallback
       
-      // DEVOPS FIX: Regex Bouncer - Allow ONLY Hebrew letters and spaces. Strip everything else.
+      // DEVOPS FIX: Safely parse the LLM's JSON. If the LLM goes crazy and breaks the JSON, 
+      // we catch the error, log it, and use the default keyword instead of crashing the server.
+      try {
+        const parsedArgs = JSON.parse(toolCall.function.arguments);
+        if (parsedArgs && parsedArgs.search_keyword) {
+           rawKeyword = parsedArgs.search_keyword;
+        }
+      } catch {
+        console.error(`[chat] LLM returned invalid JSON for tool arguments:`, toolCall.function.arguments);
+      }
+      
+      // The rest of the Regex Bouncer remains the same
       let cleanKeyword = rawKeyword.replace(/[^א-ת\s]/g, '').trim();
       
-      // Fallback in case the LLM completely hallucinated a non-Hebrew word and the string is now empty
       if (!cleanKeyword) {
-        console.warn(`[chat] LLM hallucinated non-Hebrew keyword: ${rawKeyword}. Falling back to default.`);
+        console.warn(`[chat] Sanitized keyword is empty. Falling back to default.`);
         cleanKeyword = "ריכוז"; 
       }
       
