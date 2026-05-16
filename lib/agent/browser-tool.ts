@@ -60,7 +60,7 @@ export async function browseBotanicalSites(query: string, _groqApiKey?: string):
           results.push({
             url: item.url,
             title: item.title,
-            content: item.content.slice(0, 2000) 
+            content: item.content.slice(0, 1500) 
           });
           console.info(`[browser-tool] 8. Successfully added medical content from: ${item.url}`);
         }

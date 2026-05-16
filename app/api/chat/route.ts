@@ -66,16 +66,27 @@ export async function POST(req: Request) {
     
     console.info('[chat] Calling Groq to evaluate tool usage...');
     
-    const completion1 = await groq.chat.completions.create({
-      messages: messages,
-      model: GROQ_MODEL,
-      temperature: 0.1,
-      tools: [searchTool as unknown as ChatCompletionTool],
-      tool_choice: 'auto',
-    });
+    let responseMessage;
+    try {
+      const completion1 = await groq.chat.completions.create({
+        messages: messages,
+        model: GROQ_MODEL,
+        temperature: 0.1,
+        tools: [searchTool as unknown as ChatCompletionTool],
+        tool_choice: 'auto',
+      });
+      responseMessage = completion1.choices[0]?.message;
+    } catch (toolError) {
+      console.error('[chat] Tool call failed, falling back to plain LLM:', toolError);
+      const fallbackCompletion = await groq.chat.completions.create({
+        messages: messages,
+        model: GROQ_MODEL,
+        temperature: 0.1,
+      });
+      const text = fallbackCompletion.choices[0]?.message?.content ?? 'No response';
+      return Response.json({ text, sourcesFetched: 0 });
+    }
 
-    const responseMessage = completion1.choices[0]?.message;
-    
     if (responseMessage?.tool_calls && responseMessage.tool_calls.length > 0) {
       const toolCall = responseMessage.tool_calls[0];
       
