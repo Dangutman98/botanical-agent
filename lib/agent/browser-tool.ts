@@ -15,11 +15,11 @@ export async function browseBotanicalSites(query: string, _groqApiKey?: string):
     const urlToFetch = `https://s.jina.ai/${encodeURIComponent(searchQuery)}`;
     console.info(`[browser-tool] 3. Fetching URL: ${urlToFetch}`);
 
- const response = await fetch(urlToFetch, {
+    const response = await fetch(urlToFetch, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'Authorization': `Bearer ${process.env.JINA_API_KEY}` // <--- זו השורה שמושכת את המפתח מהכספת של AWS!
+        'Authorization': `Bearer ${process.env.JINA_API_KEY}`
       }
     });
 
@@ -31,24 +31,18 @@ export async function browseBotanicalSites(query: string, _groqApiKey?: string):
     }
 
     const data = await response.json();
-    
-    // מדפיסים את ההתחלה של התשובה כדי לא לפוצץ את הלוג, אבל לראות אם חזר משהו
     console.info(`[browser-tool] 5. Raw Jina API Response preview:`, JSON.stringify(data).substring(0, 300) + '...');
     
     if (data && data.data && Array.isArray(data.data)) {
       console.info(`[browser-tool] 6. Number of items found by Jina: ${data.data.length}`);
       
-      if (data.data.length === 0) {
-         console.warn(`[browser-tool] WARNING: Jina returned an empty array! The search engine found nothing.`);
-      }
-
       for (const [index, item] of data.data.entries()) {
-        // Stop if we already have 6 good results
-        if (results.length >= 6) break;
+        // SAFE LIMIT: Stop at 4 items to strictly avoid Groq 429 Rate Limits
+        if (results.length >= 4) break;
 
         console.info(`[browser-tool] 7. Inspecting item ${index + 1}: URL=${item.url}`);
         
-        // DEVOPS FIX: The URL Blacklist (Skip commercial pages)
+        // Skip commercial/store pages
         const isCommercial = ['/shop/', '/category/', '/product/', 'add-to-cart', '?v='].some(badWord => item.url.toLowerCase().includes(badWord));
         
         if (isCommercial) {
@@ -60,6 +54,7 @@ export async function browseBotanicalSites(query: string, _groqApiKey?: string):
           results.push({
             url: item.url,
             title: item.title,
+            // SAFE PAYLOAD: Slice at 1500 chars to keep the prompt slim and safe
             content: item.content.slice(0, 1500) 
           });
           console.info(`[browser-tool] 8. Successfully added medical content from: ${item.url}`);
