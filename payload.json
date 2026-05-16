@@ -1,0 +1,8 @@
+﻿{
+  "rawPath": "/",
+  "rawQueryString": "",
+  "headers": {},
+  "requestContext": {
+    "http": { "method": "GET" }
+  }
+}

@@ -53,7 +53,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           </div>
         )}
         <div className="mb-2">
-          <p className="leading-relaxed" style={{ color: 'var(--agent-text)', whiteSpace: 'pre-line' }}>
+          <p className="leading-relaxed" style={{ color: 'var(--agent-text)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
             {content}
           </p>
         </div>
@@ -68,12 +68,23 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             </div>
             <div className="space-y-1">
               {sources.map((src, i) => {
-                const url = src.startsWith('http') ? src : null;
+                // Extract domain or site name from URL for display
+                const url = src.startsWith('http') ? src : '';
+                let displayName = url;
+                try {
+                  if (url) {
+                    const urlObj = new URL(url);
+                    displayName = urlObj.hostname.replace('www.', '');
+                  }
+                } catch {}
+                
                 return (
                   <div key={i} className="rounded-md px-3 py-1.5 text-sm" style={{ background: 'var(--source-bg)' }}>
                     {url ? (
-                      <a href={url} target="_blank" rel="noopener noreferrer" className="underline hover:no-underline" style={{ color: 'var(--accent)', wordBreak: 'break-all' }}>
-                        {url}
+                      <a href={url} target="_blank" rel="noopener noreferrer" 
+                         className="underline hover:no-underline" 
+                         style={{ color: 'var(--accent)', wordBreak: 'break-all' }}>
+                        {displayName}
                       </a>
                     ) : (
                       <span style={{ color: 'var(--agent-text)', opacity: 0.7 }}>{src}</span>
@@ -108,10 +119,16 @@ export default function Chat() {
     setError(null);
 
     try {
+      // Build history array from existing messages (exclude the ones we haven't added yet)
+      const history = messages.map((msg) => ({
+        role: msg.role,
+        content: msg.text,
+      }));
+
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, threadId }),
+        body: JSON.stringify({ message: text, threadId, history }),
       });
 
       if (response.status === 429) {

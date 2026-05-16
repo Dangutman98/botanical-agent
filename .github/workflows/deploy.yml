@@ -8,7 +8,7 @@ on:
 env:
   AWS_REGION: us-east-1
   TF_DIR: terraform
-  TF_VERSION: 1.8.0
+  ECR_REPO: botanical-agent-prod
 
 permissions:
   id-token: write
@@ -32,53 +32,26 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker image
-        run: |
-          docker build -f Dockerfile.lambda \
-            -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/botanical-agent-prod:latest \
-            .
-
-      - name: Create ECR repo if missing
-        run: |
-          aws ecr create-repository \
-            --repository-name botanical-agent-prod \
-            --region ${{ env.AWS_REGION }} || true
-
-      - name: Push to ECR
-        run: |
-          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/botanical-agent-prod:latest
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Create S3 backend if missing
-        working-directory: ${{ env.TF_DIR }}
-        run: |
-          aws s3api head-bucket --bucket botanical-agent-terraform-state-${{ secrets.AWS_ACCOUNT_ID }} 2>/dev/null || \
-          aws s3 mb s3://botanical-agent-terraform-state-${{ secrets.AWS_ACCOUNT_ID }} --region ${{ env.AWS_REGION }} || true
-
-      - name: Terraform Init
-        working-directory: ${{ env.TF_DIR }}
-        run: |
-          terraform init \
-            -backend-config="bucket=botanical-agent-terraform-state-${{ secrets.AWS_ACCOUNT_ID }}" \
-            -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="key=terraform.tfstate" \
-            -reconfigure
-
-      - name: Terraform Import (if needed)
-        working-directory: ${{ env.TF_DIR }}
-        run: |
-          terraform state list | grep aws_ecr_repository.app || terraform import aws_ecr_repository.app botanical-agent-prod
+      - name: Build, tag, and push Docker image
         env:
-          TF_VAR_groq_api_key: dummy
-          TF_IN_AUTOMATION: true
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker buildx build --push --provenance=false --sbom=false \
+            -t $ECR_REGISTRY/$ECR_REPO:latest \
+            -t $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG \
+            -f Dockerfile.lambda .
 
-      - name: Terraform Apply
-        working-directory: ${{ env.TF_DIR }}
-        run: terraform apply -auto-approve -input=false
-        env:
-          TF_VAR_groq_api_key: ${{ secrets.GROQ_API_KEY }}
-          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+      - name: Update Lambda function code
+        run: |
+          aws lambda update-function-code \
+            --function-name $ECR_REPO \
+            --image-uri ${{ steps.login-ecr.outputs.registry }}/$ECR_REPO:${{ github.sha }} \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Update Lambda environment variables
+        run: |
+          aws lambda update-function-configuration \
+            --function-name $ECR_REPO \
+            --environment "Variables={NODE_ENV=production,PORT=3000,GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},JINA_API_KEY=${{ secrets.JINA_API_KEY }}}" \
+            --region ${{ env.AWS_REGION }}

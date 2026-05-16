@@ -96,8 +96,8 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
 resource "aws_lambda_function" "app" {
   function_name = "${local.name}-${local.environment}"
   role          = aws_iam_role.lambda.arn
-  timeout       = 30
-  memory_size   = 512
+  timeout       = 300
+  memory_size   = 1024
   package_type  = "Image"
   architectures = ["x86_64"]
 
@@ -108,6 +108,7 @@ resource "aws_lambda_function" "app" {
       NODE_ENV     = "production"
       PORT         = "3000"
       GROQ_API_KEY = var.groq_api_key
+      JINA_API_KEY = var.jina_api_key
     }
   }
 

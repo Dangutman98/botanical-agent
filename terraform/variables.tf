@@ -16,3 +16,10 @@ variable "groq_api_key" {
   sensitive   = true
   default     = "managed-manually"
 }
+
+variable "jina_api_key" {
+  description = "Jina AI API key for web search"
+  type        = string
+  sensitive   = true
+  default     = "managed-manually"
+}
