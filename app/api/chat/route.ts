@@ -71,7 +71,8 @@ export async function POST(req: Request) {
       const completion1 = await groq.chat.completions.create({
         messages: messages,
         model: GROQ_MODEL,
-        temperature: 0.1,
+        temperature: 0.4,
+        frequency_penalty: 0.5,
         tools: [searchTool as unknown as ChatCompletionTool],
         tool_choice: 'auto',
       });
@@ -81,7 +82,8 @@ export async function POST(req: Request) {
       const fallbackCompletion = await groq.chat.completions.create({
         messages: messages,
         model: GROQ_MODEL,
-        temperature: 0.1,
+        temperature: 0.4,
+        frequency_penalty: 0.5,
       });
       const text = fallbackCompletion.choices[0]?.message?.content ?? 'No response';
       return Response.json({ text, sourcesFetched: 0 });
@@ -133,7 +135,8 @@ export async function POST(req: Request) {
       const finalCompletion = await groq.chat.completions.create({
         messages: messages,
         model: GROQ_MODEL,
-        temperature: 0.1,
+        temperature: 0.4,
+        frequency_penalty: 0.5,
       });
       
       const text = finalCompletion.choices[0]?.message?.content ?? 'No response';
