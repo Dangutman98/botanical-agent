@@ -18,7 +18,7 @@ Always end your answer with a "מקורות:" section.
 You MUST list EVERY source that contributed to your answer. If you reviewed 6 sources and extracted plants from 4 of them, list all 4.
 Format each source as a simple text bullet: * Site Name - https://domain.com`;
 
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_MODEL = 'llama-3.1-8b-instant';
 
 // The Tool definition is now MUCH stricter about how to construct the query
 const searchTool = {

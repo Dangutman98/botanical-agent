@@ -55,7 +55,7 @@ export async function browseBotanicalSites(query: string, _groqApiKey?: string):
             url: item.url,
             title: item.title,
             // SAFE PAYLOAD: Slice at 1500 chars to keep the prompt slim and safe
-            content: item.content.slice(0, 1500) 
+            content: item.content.slice(0, 1000) 
           });
           console.info(`[browser-tool] 8. Successfully added medical content from: ${item.url}`);
         }
