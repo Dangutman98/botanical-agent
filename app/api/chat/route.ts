@@ -80,11 +80,18 @@ export async function POST(req: Request) {
       const toolCall = responseMessage.tool_calls[0];
       
       // Trust the LLM to format the keyword correctly based on the new strict Tool description
-      let cleanKeyword = JSON.parse(toolCall.function.arguments).search_keyword;
-      // We still clean quotes just in case, but we don't force a single word anymore
-      cleanKeyword = cleanKeyword.replace(/["']/g, '').trim(); 
+      let rawKeyword = JSON.parse(toolCall.function.arguments).search_keyword;
       
-      console.info(`[chat] LLM generated keyword: "${cleanKeyword}"`);
+      // DEVOPS FIX: Regex Bouncer - Allow ONLY Hebrew letters and spaces. Strip everything else.
+      let cleanKeyword = rawKeyword.replace(/[^א-ת\s]/g, '').trim();
+      
+      // Fallback in case the LLM completely hallucinated a non-Hebrew word and the string is now empty
+      if (!cleanKeyword) {
+        console.warn(`[chat] LLM hallucinated non-Hebrew keyword: ${rawKeyword}. Falling back to default.`);
+        cleanKeyword = "ריכוז"; 
+      }
+      
+      console.info(`[chat] LLM raw: "${rawKeyword}", Sanitized keyword: "${cleanKeyword}"`);
       
       const sites = await browseBotanicalSites(cleanKeyword, process.env.GROQ_API_KEY);
       

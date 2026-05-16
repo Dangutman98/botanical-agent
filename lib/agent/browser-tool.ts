@@ -42,18 +42,27 @@ export async function browseBotanicalSites(query: string, groqApiKey?: string): 
          console.warn(`[browser-tool] WARNING: Jina returned an empty array! The search engine found nothing.`);
       }
 
-      for (const [index, item] of data.data.slice(0, 4).entries()) {
-        console.info(`[browser-tool] 7. Inspecting item ${index + 1}: URL=${item.url}, ContentLength=${item.content ? item.content.length : 0}`);
+      for (const [index, item] of data.data.entries()) {
+        // Stop if we already have 4 good results
+        if (results.length >= 4) break;
+
+        console.info(`[browser-tool] 7. Inspecting item ${index + 1}: URL=${item.url}`);
         
+        // DEVOPS FIX: The URL Blacklist (Skip commercial pages)
+        const isCommercial = ['/shop/', '/category/', '/product/', 'add-to-cart', '?v='].some(badWord => item.url.toLowerCase().includes(badWord));
+        
+        if (isCommercial) {
+          console.warn(`[browser-tool] WARNING: Skipped commercial URL: ${item.url}`);
+          continue; 
+        }
+
         if (item.content && item.content.length > 50) {
           results.push({
             url: item.url,
             title: item.title,
             content: item.content.slice(0, 2000) 
           });
-          console.info(`[browser-tool] 8. Successfully added content from: ${item.url}`);
-        } else {
-          console.warn(`[browser-tool] WARNING: Skipped item ${item.url} because content was too short or missing.`);
+          console.info(`[browser-tool] 8. Successfully added medical content from: ${item.url}`);
         }
       }
     } else {
