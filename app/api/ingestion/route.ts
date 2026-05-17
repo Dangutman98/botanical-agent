@@ -1,6 +1,7 @@
 import { pipeline, env } from '@xenova/transformers';
 
 env.allowLocalModels = true;
+env.cacheDir = '/tmp';
 
 export async function POST(req: Request) {
   try {

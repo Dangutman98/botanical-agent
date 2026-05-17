@@ -1,6 +1,7 @@
 import { pipeline, env, type FeatureExtractionPipeline } from '@xenova/transformers';
 
 env.allowLocalModels = true;
+env.cacheDir = '/tmp';
 
 let extractor: FeatureExtractionPipeline | null = null;
 
