@@ -4,11 +4,13 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 
 # Install all dependencies needed for building
-RUN npm install --ignore-scripts
+RUN npm install
 
-# Install transformers for local embeddings and pre-download the model
+# Install transformers for local embeddings
 RUN npm install @xenova/transformers
+
 ENV TRANSFORMERS_CACHE=/app/model-cache
+# Pre-download the embedding model so it's baked into the image
 RUN node -e "(async () => { const { pipeline } = require('@xenova/transformers'); await pipeline('feature-extraction', 'Xenova/multilingual-e5-small', { cache_dir: '/app/model-cache' }); })()"
 
 COPY . .

@@ -1,4 +1,6 @@
-import { pipeline } from '@xenova/transformers';
+import { pipeline, env } from '@xenova/transformers';
+
+env.allowLocalModels = true;
 
 export async function POST(req: Request) {
   try {
@@ -10,9 +12,7 @@ export async function POST(req: Request) {
 
     console.info('[ingestion] Generating embedding for:', body.title);
 
-    const extractor = await pipeline('feature-extraction', 'Xenova/multilingual-e5-small', {
-      env: { allowLocalModels: true },
-    });
+    const extractor = await pipeline('feature-extraction', 'Xenova/multilingual-e5-small');
 
     const output = await extractor(`passage: ${body.content}`, { pooling: 'mean', normalize: true });
     const vector = Array.from(output.data);

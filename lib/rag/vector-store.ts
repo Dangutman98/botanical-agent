@@ -1,13 +1,13 @@
-import { pipeline, type FeatureExtractionPipeline } from '@xenova/transformers';
+import { pipeline, env, type FeatureExtractionPipeline } from '@xenova/transformers';
+
+env.allowLocalModels = true;
 
 let extractor: FeatureExtractionPipeline | null = null;
 
 async function getExtractor() {
   if (!extractor) {
     console.info('[vector-store] Loading embedding model...');
-    extractor = await pipeline('feature-extraction', 'Xenova/multilingual-e5-small', {
-      env: { allowLocalModels: true },
-    });
+    extractor = await pipeline('feature-extraction', 'Xenova/multilingual-e5-small');
     console.info('[vector-store] Embedding model loaded');
   }
   return extractor;
