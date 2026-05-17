@@ -11,12 +11,13 @@ export async function POST(req: Request) {
       return Response.json({ error: 'title, url, and content are required' }, { status: 400 });
     }
 
-    console.info('[ingestion] Generating embedding for:', body.title);
-
+    console.log('[Ingestion] Starting pipeline initialization...');
     const extractor = await pipeline('feature-extraction', 'Xenova/multilingual-e5-small');
+    console.log('[Ingestion] Pipeline loaded successfully, generating embeddings...');
 
     const output = await extractor(`passage: ${body.content}`, { pooling: 'mean', normalize: true });
     const vector = Array.from(output.data);
+    console.log('[Ingestion] Embeddings generated, sending to Pinecone...');
 
     const id = Buffer.from(body.url + body.title).toString('base64').slice(0, 50);
 
@@ -46,8 +47,7 @@ export async function POST(req: Request) {
 
     return Response.json({ id, upserted: result });
   } catch (error) {
-    console.error('[ingestion] FATAL ERROR', { error });
-    const errorMsg = error instanceof Error ? error.message : 'Ingestion failed';
-    return Response.json({ error: errorMsg }, { status: 500 });
+    console.error('[Ingestion Error]:', error);
+    return Response.json({ error: 'Ingestion failed', details: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
