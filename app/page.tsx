@@ -8,12 +8,10 @@ type ChatMessage = {
   id: string;
   role: 'user' | 'assistant';
   text: string;
-  sources?: string[];
-  sourcesFetched?: number;
 };
 
 function parseSources(text: string): { content: string; sources: string[] } {
-  const match = text.match(/^(.*?)(\n\s*Sources?\s*:?\s*\n?)([\s\S]*)$/i);
+  const match = text.match(/^(.*?)(\n\s*מקורות:\s*\n?)([\s\S]*)$/i);
   if (match) {
     const content = match[1].trim();
     const sourcesBlock = match[3].trim();
@@ -26,10 +24,25 @@ function parseSources(text: string): { content: string; sources: string[] } {
   return { content: text, sources: [] };
 }
 
+function renderMarkdown(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|https?:\/\/[^\s]+)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('*') && part.endsWith('*')) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    }
+    if (part.startsWith('http://') || part.startsWith('https://')) {
+      return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: 'var(--accent)' }}>{part}</a>;
+    }
+    return part;
+  });
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
   const { content, sources } = isUser ? { content: message.text, sources: [] } : parseSources(message.text);
-  const sourcesFetched = isUser ? 0 : (message.sourcesFetched ?? 0);
 
   if (isUser) {
     return (
@@ -44,18 +57,10 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   return (
     <div className="animate-fadeIn flex justify-end mb-4">
       <div className="max-w-[85%] rounded-2xl rounded-bl-md px-5 py-3" style={{ background: 'var(--agent-bubble)', boxShadow: '0 2px 8px var(--shadow)' }}>
-        {sourcesFetched > 0 && (
-          <div className="mb-2 flex items-center gap-1" style={{ color: 'var(--accent)', opacity: 0.7 }}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <span className="text-xs font-medium">נבדקו {sourcesFetched} מקורות</span>
-          </div>
-        )}
-        <div className="mb-2">
-          <p className="leading-relaxed" style={{ color: 'var(--agent-text)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
-            {content}
-          </p>
+        <div className="mb-2 leading-relaxed" style={{ color: 'var(--agent-text)', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+          {content.split('\n').map((line, i) => (
+            <p key={i} className="mb-1">{renderMarkdown(line)}</p>
+          ))}
         </div>
         {sources.length > 0 && (
           <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--accent-light)' }}>
@@ -68,23 +73,17 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             </div>
             <div className="space-y-1">
               {sources.map((src, i) => {
-                // Extract domain or site name from URL for display
-                const url = src.startsWith('http') ? src : '';
-                let displayName = url;
-                try {
-                  if (url) {
-                    const urlObj = new URL(url);
-                    displayName = urlObj.hostname.replace('www.', '');
-                  }
-                } catch {}
-                
+                const urlMatch = src.match(/(https?:\/\/[^\s]+)/);
+                const url = urlMatch ? urlMatch[1] : '';
+                const displayName = src.replace(/(https?:\/\/[^\s]+)/, '').replace(/-?\s*$/, '').trim();
+
                 return (
                   <div key={i} className="rounded-md px-3 py-1.5 text-sm" style={{ background: 'var(--source-bg)' }}>
                     {url ? (
-                      <a href={url} target="_blank" rel="noopener noreferrer" 
-                         className="underline hover:no-underline" 
+                      <a href={url} target="_blank" rel="noopener noreferrer"
+                         className="underline hover:no-underline"
                          style={{ color: 'var(--accent)', wordBreak: 'break-all' }}>
-                        {displayName}
+                        {displayName || url}
                       </a>
                     ) : (
                       <span style={{ color: 'var(--agent-text)', opacity: 0.7 }}>{src}</span>
@@ -103,9 +102,8 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 export default function Chat() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [status, setStatus] = useState<'ready' | 'submitted'>('ready');
+  const [status, setStatus] = useState<'ready' | 'loading'>('ready');
   const [error, setError] = useState<string | null>(null);
-  const [threadId] = useState(() => crypto.randomUUID());
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -115,11 +113,10 @@ export default function Chat() {
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: 'user', text };
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
-    setStatus('submitted');
+    setStatus('loading');
     setError(null);
 
     try {
-      // Build history array from existing messages (exclude the ones we haven't added yet)
       const history = messages.map((msg) => ({
         role: msg.role,
         content: msg.text,
@@ -128,7 +125,7 @@ export default function Chat() {
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, threadId, history }),
+        body: JSON.stringify({ message: text, history }),
       });
 
       if (response.status === 429) {
@@ -140,12 +137,11 @@ export default function Chat() {
         throw new Error('הבקשה נכשלה');
       }
 
-      const data: { text?: string; sourcesFetched?: number } = await response.json();
+      const data: { text?: string } = await response.json();
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
         text: data.text ?? 'אין תשובה',
-        sourcesFetched: data.sourcesFetched,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -176,10 +172,10 @@ export default function Chat() {
           <MessageBubble key={m.id} message={m} />
         ))}
 
-        {status === 'submitted' && (
+        {status === 'loading' && (
           <div className="flex justify-end mb-4 animate-fadeIn">
             <div className="rounded-2xl rounded-bl-md px-5 py-3" style={{ background: 'var(--agent-bubble)', boxShadow: '0 2px 8px var(--shadow)' }}>
-              <div className="animate-pulse-dots">
+              <div className="flex gap-1">
                 <span className="text-xl" style={{ color: 'var(--accent)' }}>.</span>
                 <span className="text-xl" style={{ color: 'var(--accent)' }}>.</span>
                 <span className="text-xl" style={{ color: 'var(--accent)' }}>.</span>
@@ -204,14 +200,14 @@ export default function Chat() {
             value={input}
             placeholder="שאל שאלה על צמחים..."
             onChange={(e) => setInput(e.target.value)}
-            disabled={status === 'submitted'}
+            disabled={status === 'loading'}
             dir="rtl"
           />
           <button
             type="submit"
             className="rounded-xl px-6 py-3 text-white text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 cursor-pointer"
             style={{ background: 'var(--accent)' }}
-            disabled={!input.trim() || status === 'submitted'}
+            disabled={!input.trim() || status === 'loading'}
           >
             שלח
           </button>

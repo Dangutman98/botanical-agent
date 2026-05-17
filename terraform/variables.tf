@@ -23,3 +23,17 @@ variable "jina_api_key" {
   sensitive   = true
   default     = "managed-manually"
 }
+
+variable "pinecone_api_key" {
+  description = "Pinecone API key for vector database"
+  type        = string
+  sensitive   = true
+  default     = "managed-manually"
+}
+
+variable "pinecone_host" {
+  description = "Pinecone index host URL"
+  type        = string
+  sensitive   = false
+  default     = "managed-manually"
+}

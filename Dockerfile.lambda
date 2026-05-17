@@ -2,7 +2,15 @@ FROM public.ecr.aws/lambda/nodejs:20 AS builder
 
 WORKDIR /app
 COPY package.json package-lock.json ./
+
+# Install all dependencies needed for building
 RUN npm install --ignore-scripts
+
+# Install transformers for local embeddings and pre-download the model
+RUN npm install @xenova/transformers
+ENV TRANSFORMERS_CACHE=/app/model-cache
+RUN node -e "(async () => { const { pipeline } = require('@xenova/transformers'); await pipeline('feature-extraction', 'Xenova/multilingual-e5-small', { cache_dir: '/app/model-cache' }); })()"
+
 COPY . .
 RUN npm install lightningcss-linux-x64-gnu lightningcss-linux-x64-musl @tailwindcss/oxide-linux-x64-gnu --save-optional
 RUN npm run build
@@ -20,10 +28,15 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
+# Copy transformers package and pre-downloaded model cache for local embeddings
+COPY --from=builder /app/node_modules/@xenova/transformers ./node_modules/@xenova/transformers
+COPY --from=builder /app/model-cache ./model-cache
+
 RUN mkdir -p /tmp/cache && ln -s /tmp/cache /app/.next/cache
 
 ENV PORT=3000
 ENV HOST=0.0.0.0
 ENV AWS_LWA_HOST=127.0.0.1
 ENV NODE_ENV=production
+ENV TRANSFORMERS_CACHE=/app/model-cache
 CMD ["node", "server.js"]
