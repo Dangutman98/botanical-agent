@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     if (contextDocs.length > 0) {
       contextBlock = '\n\nContext Material:\n' +
         contextDocs.map((d, i) =>
-          `[${i + 1}] ${d.title}\nURL: ${d.url}\n${d.content}`
+          `[${i + 1}] ${d.title}\nURL: ${d.url}\n${d.content.slice(0, 2000)}`
         ).join('\n\n');
     } else {
       contextBlock = '\n\nContext Material:\nNo relevant sources were found in the knowledge base.';

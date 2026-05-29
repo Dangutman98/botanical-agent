@@ -134,7 +134,14 @@ export default function Chat() {
       }
 
       if (!response.ok) {
-        throw new Error('הבקשה נכשלה');
+        let errorMsg = 'הבקשה נכשלה. נסה שוב.';
+        try {
+          const errData = await response.json();
+          if (errData?.error) {
+            errorMsg = errData.error;
+          }
+        } catch {}
+        throw new Error(errorMsg);
       }
 
       const data: { text?: string } = await response.json();
@@ -145,8 +152,8 @@ export default function Chat() {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-    } catch {
-      setError('הבקשה נכשלה. נסה שוב.');
+    } catch (err: any) {
+      setError(err.message || 'הבקשה נכשלה. נסה שוב.');
     } finally {
       setStatus('ready');
     }

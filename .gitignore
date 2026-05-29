@@ -48,3 +48,4 @@ terraform/plan.out
 
 .vercel
 .env*.local
+.env*
