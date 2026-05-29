@@ -1,0 +1,193 @@
+import fs from 'fs';
+import path from 'path';
+import { pipeline, env, type FeatureExtractionPipeline } from '@xenova/transformers';
+import { BM25, type Chunk } from './bm25';
+
+// Configure ONNX model loader to use process environment cache or local fallback
+env.allowLocalModels = true;
+env.cacheDir = process.env.TRANSFORMERS_CACHE || '/tmp';
+
+const CHUNKS_FILE = path.join(process.cwd(), 'lib', 'rag', 'chunks.json');
+
+// Singleton pattern for the embedding model to prevent memory leaks during Next.js hot-reloads
+const globalForExtractor = global as unknown as { extractor: FeatureExtractionPipeline | null };
+
+if (!globalForExtractor.extractor) {
+  globalForExtractor.extractor = null;
+}
+
+async function getExtractor(): Promise<FeatureExtractionPipeline> {
+  if (!globalForExtractor.extractor) {
+    console.info('[hybrid-store] Initializing embedding model...');
+    globalForExtractor.extractor = await pipeline('feature-extraction', 'Xenova/multilingual-e5-small');
+    console.info('[hybrid-store] Embedding model successfully loaded');
+  }
+  return globalForExtractor.extractor;
+}
+
+// In-memory cache for BM25 search engine
+let bm25Instance: BM25 | null = null;
+let lastLoadedChunksLength = -1;
+
+function getBM25Instance(): BM25 | null {
+  try {
+    if (!fs.existsSync(CHUNKS_FILE)) {
+      return null;
+    }
+
+    const data = fs.readFileSync(CHUNKS_FILE, 'utf-8');
+    const chunks: Chunk[] = JSON.parse(data);
+
+    if (chunks.length === 0) {
+      return null;
+    }
+
+    // Only rebuild BM25 index if new chunks were added
+    if (!bm25Instance || chunks.length !== lastLoadedChunksLength) {
+      console.info(`[hybrid-store] Building BM25 index over ${chunks.length} chunks...`);
+      bm25Instance = new BM25(chunks);
+      lastLoadedChunksLength = chunks.length;
+      console.info('[hybrid-store] BM25 index built successfully');
+    }
+
+    return bm25Instance;
+  } catch (error) {
+    console.error('[hybrid-store] Failed to load/build BM25 index:', error);
+    return null;
+  }
+}
+
+// Thread-safe chunk saver to cache raw texts locally during crawling
+export async function saveChunkLocally(chunk: { title: string; url: string; content: string }): Promise<void> {
+  try {
+    const parentDir = path.dirname(CHUNKS_FILE);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+
+    let chunks: Chunk[] = [];
+    if (fs.existsSync(CHUNKS_FILE)) {
+      const data = fs.readFileSync(CHUNKS_FILE, 'utf-8');
+      chunks = JSON.parse(data);
+    }
+
+    const exists = chunks.some(c => c.url === chunk.url && c.title === chunk.title);
+    if (!exists) {
+      const id = Buffer.from(chunk.url + chunk.title).toString('base64').slice(0, 50);
+      chunks.push({ id, ...chunk });
+      fs.writeFileSync(CHUNKS_FILE, JSON.stringify(chunks, null, 2), 'utf-8');
+      console.log(`[hybrid-store] Saved chunk locally: "${chunk.title}"`);
+    }
+  } catch (error) {
+    console.error('[hybrid-store] Failed to save chunk locally:', error);
+  }
+}
+
+// Reciprocal Rank Fusion (RRF) algorithm to blend dense & sparse lists
+export function reciprocalRankFusion(
+  denseResults: { title: string; url: string; content: string }[],
+  sparseResults: Chunk[],
+  rrfK = 30,
+  denseWeight = 0.5,
+  bm25Weight = 2.0
+): { title: string; url: string; content: string }[] {
+  const scoreMap = new Map<string, { doc: { title: string; url: string; content: string }; score: number }>();
+  const getDocKey = (url: string, title: string) => `${url}::${title}`;
+
+  // 1. Process dense (vector semantic) ranks
+  denseResults.forEach((doc, index) => {
+    const rank = index + 1;
+    const key = getDocKey(doc.url, doc.title);
+    const score = denseWeight * (1 / (rrfK + rank));
+    scoreMap.set(key, { doc, score });
+  });
+
+  // 2. Process sparse (BM25 keyword) ranks
+  sparseResults.forEach((doc, index) => {
+    const rank = index + 1;
+    const key = getDocKey(doc.url, doc.title);
+    const score = bm25Weight * (1 / (rrfK + rank));
+
+    const existing = scoreMap.get(key);
+    if (existing) {
+      existing.score += score;
+    } else {
+      scoreMap.set(key, {
+        doc: { title: doc.title, url: doc.url, content: doc.content },
+        score,
+      });
+    }
+  });
+
+  // 3. Sort by combined fusion score descending
+  const fused = Array.from(scoreMap.values());
+  fused.sort((a, b) => b.score - a.score);
+
+  return fused.map(f => f.doc);
+}
+
+// Global hybrid search entry point
+export async function queryHybridBotanicalKnowledge(
+  userQuery: string,
+  topK = 3
+): Promise<{ title: string; url: string; content: string }[]> {
+  console.info('[hybrid-store] Querying hybrid store for:', userQuery);
+
+  try {
+    // 1. Get embedding for the user query (prefixed with "query: " for E5)
+    const model = await getExtractor();
+    const output = await model(`query: ${userQuery}`, { pooling: 'mean', normalize: true });
+    const vector = Array.from(output.data);
+
+    // 2. Dense Semantic Search: fetch 15 candidates from Pinecone
+    const pineconeResponse = await fetch(`https://${process.env.PINECONE_HOST}/query`, {
+      method: 'POST',
+      headers: {
+        'Api-Key': process.env.PINECONE_API_KEY || '',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ vector, topK: 15, includeMetadata: true }),
+    });
+
+    if (!pineconeResponse.ok) {
+      console.error('[hybrid-store] Pinecone query failed:', pineconeResponse.status, await pineconeResponse.text());
+      return [];
+    }
+
+    const data = await pineconeResponse.json();
+    const matches = data.matches || [];
+    const denseCandidates = matches.map((m: any) => ({
+      title: m.metadata?.title || '',
+      url: m.metadata?.url || '',
+      content: m.metadata?.content || '',
+    }));
+
+    // 3. Sparse Keyword Search: run local BM25 query for 15 candidates
+    const bm25 = getBM25Instance();
+    if (!bm25) {
+      console.warn('[hybrid-store] BM25 cache is empty or chunks.json is missing. Falling back to pure semantic search.');
+      return denseCandidates.slice(0, topK);
+    }
+
+    const sparseCandidates = bm25.search(userQuery, 15).map(res => res.chunk);
+
+    console.info(
+      `[hybrid-store] Retrieved ${denseCandidates.length} dense candidates and ${sparseCandidates.length} sparse candidates.`
+    );
+
+    // 4. Blend dense and sparse results using Reciprocal Rank Fusion
+    const fusedResults = reciprocalRankFusion(
+      denseCandidates,
+      sparseCandidates,
+      30,   // RRF constant k
+      0.5,  // Dense weight
+      2.0   // BM25 weight (Heavily prioritize exact Hebrew plant keyword matches)
+    );
+
+    console.info(`[hybrid-store] Successfully fused and returned top ${topK} results.`);
+    return fusedResults.slice(0, topK);
+  } catch (error) {
+    console.error('[hybrid-store] Hybrid retrieval FATAL ERROR:', error);
+    return [];
+  }
+}

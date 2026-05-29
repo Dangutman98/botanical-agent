@@ -1,4 +1,5 @@
 import { pipeline, env } from '@xenova/transformers';
+import { saveChunkLocally } from '@/lib/rag/hybrid-store';
 
 env.allowLocalModels = true;
 env.cacheDir = '/tmp';
@@ -44,6 +45,9 @@ export async function POST(req: Request) {
 
     const result = await pineconeResponse.json();
     console.info('[ingestion] Successfully upserted:', id);
+
+    // Save chunk locally for BM25 keyword index caching
+    await saveChunkLocally({ title: body.title, url: body.url, content: body.content });
 
     return Response.json({ id, upserted: result });
   } catch (error) {

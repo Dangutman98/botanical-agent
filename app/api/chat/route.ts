@@ -1,6 +1,6 @@
 import Groq from 'groq-sdk';
 import type { ChatCompletionMessageParam } from 'groq-sdk/resources/chat/completions';
-import { queryBotanicalKnowledge } from '@/lib/rag/vector-store';
+import { queryHybridBotanicalKnowledge } from '@/lib/rag/hybrid-store';
 
 const SYSTEM_PROMPT = `You are a direct, expert botanical assistant.
 Give concise, accurate plant guidance based ONLY on the provided sources.
@@ -33,8 +33,8 @@ export async function POST(req: Request) {
       return Response.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    console.info('[chat] Querying vector store...');
-    const contextDocs = await queryBotanicalKnowledge(message);
+    console.info('[chat] Querying hybrid vector store...');
+    const contextDocs = await queryHybridBotanicalKnowledge(message);
 
     let contextBlock = '';
     if (contextDocs.length > 0) {
