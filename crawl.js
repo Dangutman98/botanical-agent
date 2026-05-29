@@ -5,7 +5,7 @@ const fs = require('fs');
 const INGESTION_URL = "http://127.0.0.1:3000/api/ingestion";
 const CACHE_FILE = './ingested_urls.json'; 
 
-// 1. מפות האתר - הרחבנו לעמודי מוצרים, דפים ופוסטים
+// 1. Sitemaps - expanded to cover articles, pages, and products
 const SITEMAPS = [
     "https://bara.co.il/post-sitemap.xml",
     "https://bara.co.il/page-sitemap.xml",
@@ -15,14 +15,14 @@ const SITEMAPS = [
     "https://www.naturopedia.com/page-sitemap.xml"
 ];
 
-// 2. לינקים ישירים למאגרים אמריקאים קליניים
+// 2. Direct links to clinical research databases
 const DIRECT_URLS = [
     "https://www.nccih.nih.gov/health/ginger",
     "https://medlineplus.gov/druginfo/natural/961.html",
     "https://www.nccih.nih.gov/health/turmeric"
 ];
 
-// טעינת הזיכרון מקובץ (כדי לדלג על מה שכבר נמצא ב-Pinecone)
+// Load ingestion memory from local cache to skip already upserted URLs
 let ingestedCache = [];
 if (fs.existsSync(CACHE_FILE)) {
     ingestedCache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
@@ -93,7 +93,7 @@ function isAllowedUrl(url) {
     }
 }
 
-// פונקציית הפטיש: שואבת קישורים בכוח עם Regex ומתחפשת לדפדפן
+// Extracts URL locations from sitemaps utilizing RegEx
 async function fetchUrlsFromSitemap(sitemapUrl) {
     try {
         console.log(`\n🗺️ Reading Sitemap: ${sitemapUrl}`);
@@ -118,7 +118,7 @@ async function fetchUrlsFromSitemap(sitemapUrl) {
             console.log(`⚠️ No URLs found in ${sitemapUrl}. Site might be blocking us or sitemap is empty.`);
         }
         
-        // סינון לינקים שלא קשורים לתוכן (תמונות, קטגוריות, עגלה וכדומה)
+        // Filter out media files, tag pages, categories, and shopping links
         return urls.filter(url => {
             return isAllowedUrl(url) &&
                    !url.includes('/category/') && 
@@ -131,11 +131,11 @@ async function fetchUrlsFromSitemap(sitemapUrl) {
     }
 }
 
-// גירוד התוכן מתוך המאמר עצמו ושיגור למערכת המקומית
+// Scrape text content and ingest it into the RAG system
 async function scrapeAndIngest(url) {
     try {
         console.log(`\n🕸️ Scraping: ${url}`);
-        // מוסיפים User-Agent גם כאן כדי שלא יחסמו אותנו בקריאת המאמרים
+        // Set User-Agent headers to prevent scrapers from being blocked
         const response = await fetch(url, {
             headers: {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -188,7 +188,7 @@ async function mainPipeline() {
     
     let allTargetUrls = [...DIRECT_URLS];
     
-    // שואב את הכל בלי הגבלות
+    // Scrape and compile sitemap locations
     for (const sitemap of SITEMAPS) {
         const urls = await fetchUrlsFromSitemap(sitemap);
         allTargetUrls = allTargetUrls.concat(urls); 
@@ -200,7 +200,7 @@ async function mainPipeline() {
     for (let i = 0; i < allTargetUrls.length; i++) {
         const currentUrl = allTargetUrls[i];
         
-        // מנגנון הזיכרון: מדלג על מה שכבר קיים!
+        // Skip already ingested URLs
         if (ingestedCache.includes(currentUrl)) {
             console.log(`⏭️ [Progress: ${i + 1}/${allTargetUrls.length}] Skipping (Already in DB): ${currentUrl}`);
             continue; 
@@ -209,13 +209,13 @@ async function mainPipeline() {
         console.log(`\n[Progress: ${i + 1}/${allTargetUrls.length}]`);
         const success = await scrapeAndIngest(currentUrl);
         
-        // אם ההזרקה הצליחה, מוסיפים לזיכרון
+        // Add URL to ingested cache upon success
         if (success) {
             ingestedCache.push(currentUrl);
             fs.writeFileSync(CACHE_FILE, JSON.stringify(ingestedCache, null, 2));
         }
         
-        // השהייה למניעת חסימות
+        // Rate limiting delay to respect destination servers
         await new Promise(resolve => setTimeout(resolve, 1500));
     }
     
