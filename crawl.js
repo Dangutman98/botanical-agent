@@ -29,6 +29,70 @@ if (fs.existsSync(CACHE_FILE)) {
     console.log(`📦 Loaded ${ingestedCache.length} previously ingested URLs from cache.`);
 }
 
+function isAllowedUrl(url) {
+    try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.replace('www.', '').toLowerCase();
+        const path = parsed.pathname.toLowerCase();
+
+        const allowedDomains = [
+            'bara.co.il',
+            'ajcn.nutrition.org',
+            'nccih.nih.gov',
+            'naturopedia.com',
+            'medlineplus.gov',
+            'trifolium.co.il'
+        ];
+
+        if (!allowedDomains.includes(host)) {
+            return false;
+        }
+
+        const excludedPatterns = [
+            /\/cart\/?/i,
+            /\/checkout\/?/i,
+            /\/my-account\/?/i,
+            /\/customer-login\/?/i,
+            /\/affiliate-home\/?/i,
+            /\/practitioners\/?/i,
+            /\/registration\/?/i,
+            /\/contact-us\/?/i,
+            /\/privacy-policy\/?/i,
+            /\/terms-of-use\/?/i,
+            /\/our-vision\/?/i,
+            /\/about-us\/?/i,
+            /\/thank-you\/?/i,
+            /\/thankyouforyourmessage\/?/i,
+            /\/search-test\/?/i,
+            /\/404\/?/i,
+            /\/homepage\/?/i,
+            /\/shop\/?/i,
+        ];
+
+        for (const pattern of excludedPatterns) {
+            if (pattern.test(path)) {
+                return false;
+            }
+        }
+
+        if (host === 'trifolium.co.il') {
+            if (path === '/' || path === '' || path === '/shop/' || path.includes('/affiliate-home/')) {
+                return false;
+            }
+        }
+
+        if (host === 'bara.co.il') {
+            if (path === '/' || path === '' || path.includes('/cart') || path.includes('/my-account')) {
+                return false;
+            }
+        }
+
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
 // פונקציית הפטיש: שואבת קישורים בכוח עם Regex ומתחפשת לדפדפן
 async function fetchUrlsFromSitemap(sitemapUrl) {
     try {
@@ -54,9 +118,10 @@ async function fetchUrlsFromSitemap(sitemapUrl) {
             console.log(`⚠️ No URLs found in ${sitemapUrl}. Site might be blocking us or sitemap is empty.`);
         }
         
-        // סינון לינקים שלא קשורים לתוכן (תמונות, קטגוריות)
+        // סינון לינקים שלא קשורים לתוכן (תמונות, קטגוריות, עגלה וכדומה)
         return urls.filter(url => {
-            return !url.includes('/category/') && 
+            return isAllowedUrl(url) &&
+                   !url.includes('/category/') && 
                    !url.includes('/tag/') && 
                    !url.match(/\.(jpg|jpeg|png|gif|pdf)$/i);
         });

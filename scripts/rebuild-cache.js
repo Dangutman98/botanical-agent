@@ -7,6 +7,72 @@ const INGESTED_URLS_FILE = path.join(__dirname, '..', 'ingested_urls.json');
 const CHUNKS_FILE = path.join(__dirname, '..', 'lib', 'rag', 'chunks.json');
 const INGESTION_URL = 'http://127.0.0.1:3000/api/ingestion';
 
+function isAllowedUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace('www.', '').toLowerCase();
+    const pathStr = parsed.pathname.toLowerCase();
+
+    // Whitelisted Domains
+    const allowedDomains = [
+      'bara.co.il',
+      'ajcn.nutrition.org',
+      'nccih.nih.gov',
+      'naturopedia.com',
+      'medlineplus.gov',
+      'trifolium.co.il'
+    ];
+
+    if (!allowedDomains.includes(host)) {
+      return false;
+    }
+
+    // Strict path exclusions to filter out generic web clutter
+    const excludedPatterns = [
+      /\/cart\/?/i,
+      /\/checkout\/?/i,
+      /\/my-account\/?/i,
+      /\/customer-login\/?/i,
+      /\/affiliate-home\/?/i,
+      /\/practitioners\/?/i,
+      /\/registration\/?/i,
+      /\/contact-us\/?/i,
+      /\/privacy-policy\/?/i,
+      /\/terms-of-use\/?/i,
+      /\/our-vision\/?/i,
+      /\/about-us\/?/i,
+      /\/thank-you\/?/i,
+      /\/thankyouforyourmessage\/?/i,
+      /\/search-test\/?/i,
+      /\/404\/?/i,
+      /\/homepage\/?/i,
+      /\/shop\/?/i,
+    ];
+
+    for (const pattern of excludedPatterns) {
+      if (pattern.test(pathStr)) {
+        return false;
+      }
+    }
+
+    if (host === 'trifolium.co.il') {
+      if (pathStr === '/' || pathStr === '' || pathStr === '/shop/' || pathStr.includes('/affiliate-home/')) {
+        return false;
+      }
+    }
+
+    if (host === 'bara.co.il') {
+      if (pathStr === '/' || pathStr === '' || pathStr.includes('/cart') || pathStr.includes('/my-account')) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 async function main() {
   console.log('🚀 Starting local chunk cache rebuild script...');
 
@@ -24,9 +90,9 @@ async function main() {
     console.log(`📦 Loaded ${localChunks.length} existing chunks from chunks.json.`);
   }
 
-  // Find URLs that are in ingested_urls.json but NOT in chunks.json
+  // Find URLs that are in ingested_urls.json but NOT in chunks.json (strictly filtered by allowed scope)
   const existingUrls = new Set(localChunks.map(c => c.url));
-  const missingUrls = ingestedUrls.filter(url => !existingUrls.has(url));
+  const missingUrls = ingestedUrls.filter(url => !existingUrls.has(url) && isAllowedUrl(url));
 
   console.log(`🎯 Found ${missingUrls.length} URLs that need to be scraped and cached locally.`);
 
