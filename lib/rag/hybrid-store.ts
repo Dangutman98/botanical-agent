@@ -113,11 +113,13 @@ export async function queryHybridBotanicalKnowledge(
 ): Promise<{ title: string; url: string; content: string }[]> {
   console.info('[hybrid-store] Querying hybrid store for:', userQuery);
 
+  let denseCandidates: { title: string; url: string; content: string }[] = [];
+  let sparseCandidates: Chunk[] = [];
+
+  // 1. Try Dense Semantic Search (Remote HuggingFace + Pinecone)
   try {
-    // 1. Get embedding for the user query using the zero-cold-start embeddings utility
     const vector = await getEmbedding(userQuery, true);
 
-    // 2. Dense Semantic Search: fetch 15 candidates from Pinecone
     const pineconeResponse = await fetch(`https://${process.env.PINECONE_HOST}/query`, {
       method: 'POST',
       headers: {
@@ -127,45 +129,49 @@ export async function queryHybridBotanicalKnowledge(
       body: JSON.stringify({ vector, topK: 15, includeMetadata: true }),
     });
 
-    if (!pineconeResponse.ok) {
-      console.error('[hybrid-store] Pinecone query failed:', pineconeResponse.status, await pineconeResponse.text());
-      return [];
+    if (pineconeResponse.ok) {
+      const data = await pineconeResponse.json();
+      const matches = data.matches || [];
+      denseCandidates = matches.map((m: any) => ({
+        title: m.metadata?.title || '',
+        url: m.metadata?.url || '',
+        content: m.metadata?.content || '',
+      }));
+    } else {
+      console.warn('[hybrid-store] Pinecone query failed with status:', pineconeResponse.status);
     }
-
-    const data = await pineconeResponse.json();
-    const matches = data.matches || [];
-    const denseCandidates = matches.map((m: any) => ({
-      title: m.metadata?.title || '',
-      url: m.metadata?.url || '',
-      content: m.metadata?.content || '',
-    }));
-
-    // 3. Sparse Keyword Search: run local BM25 query for 15 candidates
-    const bm25 = getBM25Instance();
-    if (!bm25) {
-      console.warn('[hybrid-store] BM25 cache is empty or chunks.json is missing. Falling back to pure semantic search.');
-      return denseCandidates.slice(0, topK);
-    }
-
-    const sparseCandidates = bm25.search(userQuery, 15).map(res => res.chunk);
-
-    console.info(
-      `[hybrid-store] Retrieved ${denseCandidates.length} dense candidates and ${sparseCandidates.length} sparse candidates.`
-    );
-
-    // 4. Blend dense and sparse results using Reciprocal Rank Fusion
-    const fusedResults = reciprocalRankFusion(
-      denseCandidates,
-      sparseCandidates,
-      30,   // RRF constant k
-      0.5,  // Dense weight
-      2.0   // BM25 weight (Heavily prioritize exact Hebrew plant keyword matches)
-    );
-
-    console.info(`[hybrid-store] Successfully fused and returned top ${topK} results.`);
-    return fusedResults.slice(0, topK);
   } catch (error) {
-    console.error('[hybrid-store] Hybrid retrieval FATAL ERROR:', error);
+    console.warn('[hybrid-store] Dense semantic search failed (HuggingFace/Pinecone error). Falling back to pure BM25 keyword search:', error);
+  }
+
+  // 2. Try Sparse Keyword Search (Local BM25 query)
+  try {
+    const bm25 = getBM25Instance();
+    if (bm25) {
+      sparseCandidates = bm25.search(userQuery, 15).map(res => res.chunk);
+      console.info(`[hybrid-store] Local BM25 search found ${sparseCandidates.length} sparse candidates.`);
+    } else {
+      console.warn('[hybrid-store] BM25 cache is empty or chunks.json is missing.');
+    }
+  } catch (error) {
+    console.error('[hybrid-store] Local BM25 search failed:', error);
+  }
+
+  // 3. Fail-safe: if both returned absolutely nothing, output warning
+  if (denseCandidates.length === 0 && sparseCandidates.length === 0) {
+    console.warn('[hybrid-store] Both dense and sparse search returned zero results.');
     return [];
   }
+
+  // 4. Blend dense and sparse results using Reciprocal Rank Fusion
+  const fusedResults = reciprocalRankFusion(
+    denseCandidates,
+    sparseCandidates,
+    30,   // RRF constant k
+    0.5,  // Dense weight
+    2.0   // BM25 weight (Heavily prioritize exact Hebrew plant keyword matches)
+  );
+
+  console.info(`[hybrid-store] Successfully fused and returned top ${topK} results.`);
+  return fusedResults.slice(0, topK);
 }
