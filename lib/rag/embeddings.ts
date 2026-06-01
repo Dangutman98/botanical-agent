@@ -7,8 +7,9 @@ env.cacheDir = process.env.TRANSFORMERS_CACHE || '/tmp';
 // Singleton placeholder for local model backup
 let localExtractor: any = null;
 
-// Read Hugging Face authorization tokens from environment variables
-const HF_TOKEN = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || '';
+// Read Hugging Face authorization tokens from environment variables, filtering 'none' fallbacks
+const rawToken = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || '';
+const HF_TOKEN = rawToken.toLowerCase() === 'none' ? '' : rawToken;
 
 /**
  * Generates a 384-dimensional vector embedding for the input text using multilingual-e5-small.
