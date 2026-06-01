@@ -64,13 +64,10 @@ function getDomainFriendlyName(urlStr: string): string {
   }
 }
 
-// Extracts RAG sources from assistant responses while filtering the hidden ENTITY tags
+// Extracts RAG sources from assistant responses
 function parseSources(text: string): { content: string; sources: string[] } {
-  // Strip hidden [ENTITY: ...] tags completely from text display
-  const cleanText = text.replace(/\[ENTITY:\s*[^\]]+\]/gi, '').trim();
-
   // General regex to match ANY variation of "מקורות" regardless of colons, newlines, spaces, or leading text
-  const match = cleanText.match(/^(.*?)(\n|^)\s*מקורות\s*[^:\n]*:?\s*\n?([\s\S]*)$/i);
+  const match = text.match(/^(.*?)(\n|^)\s*מקורות\s*[^:\n]*:?\s*\n?([\s\S]*)$/i);
   if (match) {
     const content = match[1].trim();
     const sourcesBlock = match[3].trim();
@@ -80,7 +77,7 @@ function parseSources(text: string): { content: string; sources: string[] } {
       .filter(Boolean);
     return { content, sources };
   }
-  return { content: cleanText, sources: [] };
+  return { content: text.trim(), sources: [] };
 }
 
 // Renders styled text containing bold elements and hyperlink triggers

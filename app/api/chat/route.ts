@@ -16,10 +16,7 @@ FORMATTING SOURCES (CRITICAL):
 Do NOT use Markdown link syntax like [text](url).
 Always end your answer with a "מקורות:" section.
 You MUST list EVERY source that contributed to your answer.
-Format each source as a simple text bullet: * Site Name - https://domain.com
-
-CONTEXT-AWARE ENTITY TAG (CRITICAL):
-At the very end of your response, after the sources, you MUST always append a hidden entity extraction tag in exactly this format: [ENTITY: specific_plant_name] (e.g., [ENTITY: ג'ינג'ר] or [ENTITY: גרעיני חמנייה]). Use the specific plant, seed, or flower name in Hebrew that was the core subject of the user's question. If no specific plant or botanical entity was the core subject of the query, output [ENTITY: None]. Do not wrap this tag in markdown, just output it at the very end.`;
+Format each source as a simple text bullet: * Site Name - https://domain.com`;
 
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
