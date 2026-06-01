@@ -1,29 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import { pipeline, env, type FeatureExtractionPipeline } from '@xenova/transformers';
 import { BM25, type Chunk } from './bm25';
-
-// Configure ONNX model loader to use process environment cache or local fallback
-env.allowLocalModels = true;
-env.cacheDir = process.env.TRANSFORMERS_CACHE || '/tmp';
+import { getEmbedding } from './embeddings';
 
 const CHUNKS_FILE = path.join(process.cwd(), 'lib', 'rag', 'chunks.json');
-
-// Singleton pattern for the embedding model to prevent memory leaks during Next.js hot-reloads
-const globalForExtractor = global as unknown as { extractor: FeatureExtractionPipeline | null };
-
-if (!globalForExtractor.extractor) {
-  globalForExtractor.extractor = null;
-}
-
-async function getExtractor(): Promise<FeatureExtractionPipeline> {
-  if (!globalForExtractor.extractor) {
-    console.info('[hybrid-store] Initializing embedding model...');
-    globalForExtractor.extractor = await pipeline('feature-extraction', 'Xenova/multilingual-e5-small');
-    console.info('[hybrid-store] Embedding model successfully loaded');
-  }
-  return globalForExtractor.extractor;
-}
 
 // In-memory cache for BM25 search engine
 let bm25Instance: BM25 | null = null;
@@ -134,10 +114,8 @@ export async function queryHybridBotanicalKnowledge(
   console.info('[hybrid-store] Querying hybrid store for:', userQuery);
 
   try {
-    // 1. Get embedding for the user query (prefixed with "query: " for E5)
-    const model = await getExtractor();
-    const output = await model(`query: ${userQuery}`, { pooling: 'mean', normalize: true });
-    const vector = Array.from(output.data);
+    // 1. Get embedding for the user query using the zero-cold-start embeddings utility
+    const vector = await getEmbedding(userQuery, true);
 
     // 2. Dense Semantic Search: fetch 15 candidates from Pinecone
     const pineconeResponse = await fetch(`https://${process.env.PINECONE_HOST}/query`, {

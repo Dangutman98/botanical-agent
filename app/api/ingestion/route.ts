@@ -1,9 +1,10 @@
-import { pipeline, env } from '@xenova/transformers';
 import { saveChunkLocally } from '@/lib/rag/hybrid-store';
+import { getEmbedding } from '@/lib/rag/embeddings';
 
-env.allowLocalModels = true;
-env.cacheDir = '/tmp';
-
+/**
+ * Closed API ingestion endpoint. Receives scraped web document content,
+ * generates its dense vector passage embedding, and indexes it into Pinecone + BM25 JSON cache.
+ */
 export async function POST(req: Request) {
   try {
     const body: { title: string; url: string; content: string } = await req.json();
@@ -12,13 +13,10 @@ export async function POST(req: Request) {
       return Response.json({ error: 'title, url, and content are required' }, { status: 400 });
     }
 
-    console.log('[Ingestion] Starting pipeline initialization...');
-    const extractor = await pipeline('feature-extraction', 'Xenova/multilingual-e5-small');
-    console.log('[Ingestion] Pipeline loaded successfully, generating embeddings...');
-
-    const output = await extractor(`passage: ${body.content}`, { pooling: 'mean', normalize: true });
-    const vector = Array.from(output.data);
-    console.log('[Ingestion] Embeddings generated, sending to Pinecone...');
+    console.info('[Ingestion] Generating passage embedding for new document...');
+    // Generate document embedding vector using unified embeddings helper as a passage
+    const vector = await getEmbedding(body.content, false);
+    console.info('[Ingestion] Embeddings generated successfully, indexing to Pinecone...');
 
     const id = Buffer.from(body.url + body.title).toString('base64').slice(0, 50);
 
@@ -44,7 +42,7 @@ export async function POST(req: Request) {
     }
 
     const result = await pineconeResponse.json();
-    console.info('[ingestion] Successfully upserted:', id);
+    console.info('[ingestion] Successfully upserted to Pinecone:', id);
 
     // Save chunk locally for BM25 keyword index caching
     await saveChunkLocally({ title: body.title, url: body.url, content: body.content });
