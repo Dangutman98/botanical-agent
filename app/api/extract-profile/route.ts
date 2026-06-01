@@ -42,15 +42,16 @@ export async function POST(req: Request) {
     if (contextDocs.length > 0) {
       contextBlock = '\n\nContext Material:\n' +
         contextDocs.map((d, i) =>
-          `[${i + 1}] ${d.title}\n${d.content}`
+          `[${i + 1}] ${d.title}\n${d.content.slice(0, 2000)}`
         ).join('\n\n');
     } else {
       contextBlock = '\n\nContext Material:\nNo specific sources found in current knowledge base, compile standard clinical values.';
     }
 
     const enrichedSystemPrompt = EXTRACTION_SYSTEM_PROMPT + contextBlock;
+    const apiKey = process.env.GROQ_API_KEY || 'dummy-build-key';
 
-    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'dummy-build-key' });
+    const groq = new Groq({ apiKey });
 
     console.info(`[extract-profile] Querying Groq JSON for: "${entity}"...`);
     const completion = await groq.chat.completions.create({
@@ -63,9 +64,16 @@ export async function POST(req: Request) {
       temperature: 0.2
     });
 
-    const responseText = completion.choices[0]?.message?.content || '{}';
-    const profileJson = JSON.parse(responseText);
+    let responseText = completion.choices[0]?.message?.content || '{}';
+    console.info(`[extract-profile] Raw Groq response received for "${entity}"`);
 
+    // Safe fallback: Strip markdown code blocks if the LLM returned JSON wrapped in markdown tags
+    if (responseText.includes('```')) {
+      console.info('[extract-profile] Stripping markdown block wrapper around JSON string...');
+      responseText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    }
+
+    const profileJson = JSON.parse(responseText);
     return Response.json(profileJson);
   } catch (error) {
     console.error('[extract-profile] FATAL ERROR:', error);
