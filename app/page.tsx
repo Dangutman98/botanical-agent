@@ -64,23 +64,34 @@ function getDomainFriendlyName(urlStr: string): string {
   }
 }
 
-// Extracts RAG sources from assistant responses
+// Extracts RAG sources from assistant responses by cleanly splitting at the sources marker
 function parseSources(text: string): { content: string; sources: string[] } {
-  // General regex to match ANY variation of "מקורות" regardless of colons, newlines, spaces, or leading text
-  const match = text.match(/^(.*?)(\n|^)\s*מקורות\s*[^:\n]*:?\s*\n?([\s\S]*)$/i);
-  if (match) {
-    const content = match[1].trim();
-    const sourcesBlock = match[3].trim();
+  const marker = "מקורות";
+  const index = text.lastIndexOf(marker);
+  
+  if (index !== -1 && index > text.length * 0.3) {
+    const content = text.slice(0, index).trim();
+    
+    // Clean up leading colons, asterisks, bold characters, or newlines from the sources section
+    let sourcesBlock = text.slice(index + marker.length).trim();
+    sourcesBlock = sourcesBlock
+      .replace(/^[:*#\s\-\u200b]+/, '') // strip leading colons, asterisks, hashes, spaces, and dashes
+      .trim();
+
     const sources = sourcesBlock
       .split(/\n/)
       .map((line) => line.trim().replace(/^[-•*]\s*/, '').replace(/\s*[-•*]$/, '').trim())
       .filter(Boolean);
-    return { content, sources };
+
+    // Remove any unclosed markdown bold tags at the end of the text content
+    const cleanContent = content.replace(/\*\*$/, '').trim();
+    return { content: cleanContent, sources };
   }
+  
   return { content: text.trim(), sources: [] };
 }
 
-// Renders styled text containing bold elements and hyperlink triggers
+// Renders styled text containing bold elements and hyperlink triggers with friendly, space-saving display names
 function renderMarkdown(text: string): React.ReactNode {
   const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|https?:\/\/[^\s]+)/g);
   return parts.map((part, i) => {
@@ -91,6 +102,8 @@ function renderMarkdown(text: string): React.ReactNode {
       return <em key={i}>{part.slice(1, -1)}</em>;
     }
     if (part.startsWith('http://') || part.startsWith('https://')) {
+      // Resolve the friendly display name for the domain instead of printing the raw URL
+      const friendlyName = getDomainFriendlyName(part);
       return (
         <a 
           key={i} 
@@ -100,7 +113,7 @@ function renderMarkdown(text: string): React.ReactNode {
           className="underline hover:opacity-85 font-medium transition-opacity" 
           style={{ color: 'var(--accent)' }}
         >
-          {part}
+          {friendlyName}
         </a>
       );
     }
