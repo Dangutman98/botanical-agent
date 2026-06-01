@@ -24,6 +24,24 @@ function parseSources(text: string): { content: string; sources: string[] } {
   return { content: text, sources: [] };
 }
 
+function getDomainFriendlyName(urlStr: string): string {
+  try {
+    const parsed = new URL(urlStr);
+    const host = parsed.hostname.replace('www.', '').toLowerCase();
+    
+    if (host.includes('bara.co.il')) return 'ברא צמחים';
+    if (host.includes('trifolium.co.il')) return 'טריפוליום';
+    if (host.includes('naturopedia.com')) return 'נטורופדיה';
+    if (host.includes('nccih.nih.gov')) return 'NCCIH (מכון הבריאות האמריקאי)';
+    if (host.includes('medlineplus.gov')) return 'MedlinePlus';
+    if (host.includes('ajcn.nutrition.org')) return 'AJCN (כתב עת לתזונה)';
+    
+    return parsed.hostname;
+  } catch {
+    return 'מקור חיצוני';
+  }
+}
+
 function renderMarkdown(text: string): React.ReactNode {
   const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|https?:\/\/[^\s]+)/g);
   return parts.map((part, i) => {
@@ -71,24 +89,49 @@ function MessageBubble({ message }: { message: ChatMessage }) {
               </svg>
               <span className="text-sm font-semibold">מקורות</span>
             </div>
-            <div className="space-y-1">
+            <div className="flex flex-wrap gap-2 mt-2">
               {sources.map((src, i) => {
                 const urlMatch = src.match(/(https?:\/\/[^\s]+)/);
                 const url = urlMatch ? urlMatch[1] : '';
-                const displayName = src.replace(/(https?:\/\/[^\s]+)/, '').replace(/-?\s*$/, '').trim();
+                
+                let displayName = src
+                  .replace(/(https?:\/\/[^\s]+)/, '')
+                  .replace(/^[-•*]\s*/, '')
+                  .replace(/-?\s*$/, '')
+                  .trim();
+                  
+                try {
+                  displayName = decodeURIComponent(displayName);
+                } catch {}
+
+                const friendlyDomain = getDomainFriendlyName(url);
+                
+                const displayTitle = displayName && displayName !== '-' 
+                  ? `${friendlyDomain}: ${displayName}` 
+                  : friendlyDomain;
 
                 return (
-                  <div key={i} className="rounded-md px-3 py-1.5 text-sm" style={{ background: 'var(--source-bg)' }}>
-                    {url ? (
-                      <a href={url} target="_blank" rel="noopener noreferrer"
-                         className="underline hover:no-underline"
-                         style={{ color: 'var(--accent)', wordBreak: 'break-all' }}>
-                        {displayName || url}
-                      </a>
-                    ) : (
-                      <span style={{ color: 'var(--agent-text)', opacity: 0.7 }}>{src}</span>
-                    )}
-                  </div>
+                  <a
+                    key={i}
+                    href={url || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all hover:scale-[1.02] active:scale-[0.98] border shadow-sm"
+                    style={{
+                      background: 'var(--source-bg)',
+                      borderColor: 'var(--accent-light)',
+                      color: 'var(--accent)',
+                      textDecoration: 'none',
+                    }}
+                    title={url}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                    <span>{displayTitle}</span>
+                  </a>
                 );
               })}
             </div>
