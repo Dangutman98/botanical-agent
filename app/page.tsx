@@ -76,13 +76,14 @@ function parseSources(text: string): { content: string; sources: string[] } {
   // Strip hidden [ENTITY: ...] tags completely from text display
   const cleanText = text.replace(/\[ENTITY:\s*[^\]]+\]/gi, '').trim();
 
-  const match = cleanText.match(/^(.*?)(\n\s*מקורות:\s*\n?)([\s\S]*)$/i);
+  // General regex to match ANY variation of "מקורות" regardless of colons, newlines, spaces, or leading text
+  const match = cleanText.match(/^(.*?)(\n|^)\s*מקורות\s*[^:\n]*:?\s*\n?([\s\S]*)$/i);
   if (match) {
     const content = match[1].trim();
     const sourcesBlock = match[3].trim();
     const sources = sourcesBlock
       .split(/\n/)
-      .map((line) => line.replace(/^[-•*]\s*/, '').trim())
+      .map((line) => line.trim().replace(/^[-•*]\s*/, '').replace(/\s*[-•*]$/, '').trim())
       .filter(Boolean);
     return { content, sources };
   }
@@ -151,13 +152,17 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             </div>
             <div className="flex flex-wrap gap-2 mt-2">
               {sources.map((src, i) => {
-                const urlMatch = src.match(/(https?:\/\/[^\s]+)/);
+                // Strip trailing asterisks or bullets (common alignment artifacts in RTL layouts)
+                const cleanSrc = src.trim().replace(/\s*[-•*]$/, '').trim();
+
+                const urlMatch = cleanSrc.match(/(https?:\/\/[^\s]+)/);
                 const url = urlMatch ? urlMatch[1] : '';
                 
-                let displayName = src
+                let displayName = cleanSrc
                   .replace(/(https?:\/\/[^\s]+)/, '')
                   .replace(/^[-•*]\s*/, '')
-                  .replace(/-?\s*$/, '')
+                  .replace(/^[-–—]\s*/, '')
+                  .replace(/\s*[-–—]$/, '')
                   .trim();
                   
                 try {
@@ -211,6 +216,7 @@ export default function Chat() {
   const [activeEntity, setActiveEntity] = useState<string>('None');
   const [profileData, setProfileData] = useState<BotanicalProfile | null>(null);
   const [profileStatus, setProfileStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -231,22 +237,33 @@ export default function Chat() {
     }
     
     setProfileStatus('loading');
+    setProfileError(null);
     try {
       const res = await fetch('/api/extract-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entity }),
       });
-      if (!res.ok) throw new Error('Failed to extract profile');
+      if (!res.ok) {
+        let errorMsg = 'Failed to extract profile';
+        try {
+          const errData = await res.json();
+          if (errData?.error) {
+            errorMsg = errData.error;
+          }
+        } catch {}
+        throw new Error(errorMsg);
+      }
       const data = await res.json();
       setProfileData(data);
       setProfileStatus('success');
       
       // Auto open sidebar on desktop/mobile when profile is ready to delight the user
       setSidebarOpen(true);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error extracting profile:', err);
       setProfileStatus('error');
+      setProfileError(err.message || 'שגיאה כללית בהפקת הפרופיל');
     }
   };
 
@@ -449,11 +466,12 @@ export default function Chat() {
 
             {/* Error fallback wrapper */}
             {profileStatus === 'error' && (
-              <div className="p-3 text-center rounded-lg border border-red-200/80 bg-red-50/50 dark:bg-red-950/20 text-red-700 dark:text-red-300">
-                <p className="text-xs font-bold">שגיאה בהפקת הפרופיל הקליני.</p>
+              <div className="p-3 text-center rounded-lg border border-red-200/80 bg-red-50/50 dark:bg-red-950/20 text-red-700 dark:text-red-300 animate-fadeIn">
+                <p className="text-xs font-bold text-red-800 dark:text-red-300">שגיאה בהפקת הפרופיל הקליני:</p>
+                <p className="text-[10px] mt-1.5 font-semibold leading-relaxed text-red-700 dark:text-red-400/90 whitespace-pre-wrap">{profileError || 'שגיאה בתקשורת עם השרת'}</p>
                 <button 
                   onClick={() => fetchProfile(activeEntity)}
-                  className="mt-2 text-[10px] underline font-bold hover:text-red-800 dark:hover:text-red-200 cursor-pointer"
+                  className="mt-2.5 text-[10px] underline font-bold hover:text-red-800 dark:hover:text-red-200 cursor-pointer block mx-auto transition-colors"
                 >
                   נסה שוב
                 </button>
