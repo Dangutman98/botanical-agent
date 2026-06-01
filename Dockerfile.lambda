@@ -32,6 +32,7 @@ COPY --from=builder /app/.next/standalone ./
 
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/lib ./lib
 
 # Copy transformers package and pre-downloaded model cache for local embeddings
 COPY --from=builder /app/node_modules/@xenova/transformers ./node_modules/@xenova/transformers

@@ -15,7 +15,7 @@ const HF_TOKEN = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || '';
  * Uses a robust, zero-cold-start hybrid approach with active loading retries:
  * 1. Queries the remote Hugging Face Inference API (instant, no local execution/memory overhead).
  * 2. Safe retries if the remote model is currently loading (cold start on Hugging Face).
- * 3. Falls back to local WASM execution via @xenova/transformers if the remote endpoint is unavailable.
+ * 3. Falls back to local WASM execution via @xenova/transformers ONLY on local machine (disabled in production serverless).
  */
 export async function getEmbedding(text: string, isQuery = true): Promise<number[]> {
   // Multilingual-E5 models require queries to be prefixed with "query: " and documents/passages with "passage: "
@@ -90,7 +90,15 @@ export async function getEmbedding(text: string, isQuery = true): Promise<number
     console.warn('[embeddings] Remote Hugging Face API error, falling back to local model:', err);
   }
 
-  // 2. Fallback to local CPU-execution in @xenova/transformers
+  // Detect serverless environment (AWS Lambda or Vercel)
+  const isServerless = !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.VERCEL || process.env.NODE_ENV === 'production';
+
+  if (isServerless) {
+    console.error('[embeddings] Remote Hugging Face API failed. Local execution is disabled in serverless/production to prevent timeouts & crashes.');
+    throw new Error('Remote embedding generation failed. Serverless local execution blocked.');
+  }
+
+  // 2. Fallback to local CPU-execution in @xenova/transformers (local machine dev/scraping fallback only)
   try {
     if (!localExtractor) {
       console.info('[embeddings] Loading local multilingual-e5-small model...');
