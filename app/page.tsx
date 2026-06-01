@@ -11,17 +11,10 @@ type ChatMessage = {
   text: string;
 };
 
-type ProfileComponent = {
-  component: string;
-  type: string;
-  value: string;
-  indication: string;
-};
-
-type BotanicalProfile = {
-  entity: string;
-  profile: ProfileComponent[];
-  contraindications: string;
+type TableData = {
+  headers: string[];
+  rows: string[][];
+  title: string;
 };
 
 // Custom interactive Tooltip component supporting hover on desktop and tap/click on mobile
@@ -118,6 +111,77 @@ function renderMarkdown(text: string): React.ReactNode {
   });
 }
 
+// Scans backward through chat messages to parse the latest Markdown table
+function extractLastTableFromMessages(messages: ChatMessage[]): TableData | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'assistant') continue;
+
+    const lines = msg.text.split('\n');
+    let inTable = false;
+    let headers: string[] = [];
+    const rows: string[][] = [];
+    let dividerIndex = -1;
+
+    for (let j = 0; j < lines.length; j++) {
+      const line = lines[j].trim();
+      
+      // A table line must start and end with the | character
+      if (line.startsWith('|') && line.endsWith('|')) {
+        const cells = line
+          .split('|')
+          .map(c => c.trim())
+          .filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
+
+        // Detect standard Markdown table divider row
+        const isDivider = cells.length > 0 && cells.every(c => /^[:-]+$/.test(c));
+        
+        if (isDivider) {
+          dividerIndex = j;
+          inTable = true;
+          if (j > 0) {
+            const prevLine = lines[j - 1].trim();
+            if (prevLine.startsWith('|') && prevLine.endsWith('|')) {
+              headers = prevLine
+                .split('|')
+                .map(c => c.trim())
+                .filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
+            }
+          }
+          continue;
+        }
+
+        if (inTable && dividerIndex !== -1 && j > dividerIndex) {
+          rows.push(cells);
+        }
+      } else {
+        if (inTable && rows.length > 0) {
+          break;
+        }
+      }
+    }
+
+    if (headers.length > 0 && rows.length > 0) {
+      // Find a descriptive title from the text preceding the table
+      let title = 'פרופיל רכיבים קליני';
+      const textBeforeTable = lines.slice(0, Math.max(0, dividerIndex - 1)).join(' ').trim();
+      const titleMatch = textBeforeTable.match(/(?:עבור|של|בצמח|במזון)\s+([א-ת\s]+)/);
+      if (titleMatch) {
+        title = `פרופיל רכיבים: ${titleMatch[1].trim()}`;
+      } else {
+        const cleanPreText = textBeforeTable.replace(/[*#]/g, '').trim();
+        if (cleanPreText.length > 0) {
+          title = cleanPreText.slice(0, 45) + (cleanPreText.length > 45 ? '...' : '');
+        }
+      }
+
+      return { headers, rows, title };
+    }
+  }
+
+  return null;
+}
+
 // Represents a single text message card in the conversation feed
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
@@ -212,12 +276,12 @@ export default function Chat() {
   const [status, setStatus] = useState<'ready' | 'loading'>('ready');
   const [error, setError] = useState<string | null>(null);
 
-  // States for the custom Clinical Toolbox
-  const [activeEntity, setActiveEntity] = useState<string>('None');
-  const [profileData, setProfileData] = useState<BotanicalProfile | null>(null);
-  const [profileStatus, setProfileStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [profileError, setProfileError] = useState<string | null>(null);
+  // States for the new resilient Chat-to-Excel Exporter
+  const [activeTable, setActiveTable] = useState<TableData | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+
+  // State for the plant or component name typed in the sidebar
+  const [plantInput, setPlantInput] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -230,79 +294,44 @@ export default function Chat() {
     scrollToBottom();
   }, [messages, status]);
 
-  // Invokes the structured profiling endpoint to retrieve JSON data for the tracked plant
-  const fetchProfile = async (entity: string) => {
-    if (!entity || entity.toLowerCase() === 'none') {
-      return;
-    }
-    
-    setProfileStatus('loading');
-    setProfileError(null);
-    try {
-      const res = await fetch('/api/extract-profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity }),
-      });
-      if (!res.ok) {
-        let errorMsg = 'Failed to extract profile';
-        try {
-          const errData = await res.json();
-          if (errData?.error) {
-            errorMsg = errData.error;
-          }
-        } catch {}
-        throw new Error(errorMsg);
-      }
-      const data = await res.json();
-      setProfileData(data);
-      setProfileStatus('success');
-      
-      // Auto open sidebar on desktop/mobile when profile is ready to delight the user
+  // Synchronize active table from chat history whenever messages change
+  useEffect(() => {
+    const table = extractLastTableFromMessages(messages);
+    if (table) {
+      setActiveTable(table);
+      // Auto open sidebar to alert the naturopath that the Excel export is ready!
       setSidebarOpen(true);
-    } catch (err: any) {
-      console.error('Error extracting profile:', err);
-      setProfileStatus('error');
-      setProfileError(err.message || 'שגיאה כללית בהפקת הפרופיל');
     }
+  }, [messages]);
+
+  // Clears the active table state to allow entering a new plant name
+  const handleClearActiveTable = () => {
+    setActiveTable(null);
+    setPlantInput('');
   };
 
-  // Compiles and exports structured botanical rows to Microsoft Excel (.xlsx) client-side
+  // Compiles and exports parsed markdown rows to MS Excel (.xlsx) client-side
   const handleExportToExcel = () => {
-    if (!profileData) return;
+    if (!activeTable) return;
 
-    // Build the sheet dataset with headers, profile rows, and styled banners
-    const titleRow = [`דוח רכיבים טיפולי קליני: ${profileData.entity || activeEntity}`];
+    // Build the sheet dataset with headers, parsed rows, and styled banners
+    const titleRow = [activeTable.title];
     const dateRow = [`הופק בתאריך: ${new Date().toLocaleDateString('he-IL')} על ידי העוזר הבוטני המאובטח`];
     const blankRow: string[] = [];
-
-    const headers = ['רכיב קליני', 'סוג רכיב', 'ערך / ריכוז במזון/צמח', 'התוויה טיפולית / מנגנון פעולה'];
-    const rows = (profileData.profile || []).map(item => [
-      item.component || '',
-      item.type || '',
-      item.value || '',
-      item.indication || ''
-    ]);
-
-    const warningsHeader = ['⚠️ אזהרות והתוויות נגד קליניות:'];
-    const warningsText = [profileData.contraindications || 'לא נמצאו אזהרות ספציפיות במאגר.'];
 
     // Combine sections into one grid structure
     const aoaData = [
       titleRow,
       dateRow,
       blankRow,
-      headers,
-      ...rows,
-      blankRow,
-      warningsHeader,
-      warningsText
+      activeTable.headers,
+      ...activeTable.rows
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(aoaData);
 
     // Auto-fit column widths dynamically to prevent clipping in Excel
-    const maxCols = 4;
+    const maxCols = activeTable.headers.length;
     const colWidths = [];
     for (let colIdx = 0; colIdx < maxCols; colIdx++) {
       let maxLen = 15;
@@ -320,26 +349,30 @@ export default function Chat() {
 
     // Generate workbook and trigger native browser download
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'פרופיל רכיבים קליני');
+    XLSX.utils.book_append_sheet(wb, ws, 'פרופיל רכיבים');
 
-    const fileName = `פרופיל_קליני_${profileData.entity || activeEntity}.xlsx`.replace(/\s+/g, '_');
+    const fileName = `${activeTable.title.replace(/\s+/g, '_')}.xlsx`;
     XLSX.writeFile(wb, fileName);
   };
 
-  // Submits the naturopath's question, fetches response, and parses entity context tags
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const text = input.trim();
+  // Core helper to post questions to the RAG backend API and handle response states
+  const sendMessage = async (text: string) => {
     if (!text) return;
 
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: 'user', text };
     setMessages((prev) => [...prev, userMessage]);
-    setInput('');
     setStatus('loading');
     setError(null);
 
     try {
-      const history = messages.map((msg) => ({
+      // Fetch latest messages from state callback to build correct history array
+      let currentMessages: ChatMessage[] = [];
+      setMessages((prev) => {
+        currentMessages = prev;
+        return prev;
+      });
+
+      const history = currentMessages.slice(0, -1).map((msg) => ({
         role: msg.role,
         content: msg.text,
       }));
@@ -369,34 +402,35 @@ export default function Chat() {
       const data: { text?: string } = await response.json();
       const rawText = data.text ?? 'אין תשובה';
 
-      // Parse custom [ENTITY: name] tags appended by the model
-      const entityMatch = rawText.match(/\[ENTITY:\s*([^\]]+)\]/i);
-      let entityName = 'None';
-      let cleanText = rawText;
-
-      if (entityMatch) {
-        entityName = entityMatch[1].trim();
-        cleanText = rawText.replace(/\[ENTITY:\s*[^\]]+\]/gi, '').trim();
-      }
-
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        text: cleanText,
+        text: rawText,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-
-      // If an active entity is found, invoke automatic profile scraping
-      if (entityName !== 'None') {
-        setActiveEntity(entityName);
-        fetchProfile(entityName);
-      }
     } catch (err: any) {
       setError(err.message || 'הבקשה נכשלה. נסה שוב.');
     } finally {
       setStatus('ready');
     }
+  };
+
+  // Triggers automated prompt to the bot asking for a clinical table for a specific botanical
+  const handleTriggerTableGeneration = async (plantName: string) => {
+    const trimmed = plantName.trim();
+    if (!trimmed) return;
+    const prompt = `אנא הפק טבלה קלינית מפורטת עבור ${trimmed} המציגה את הרכיבים הפעילים/התזונתיים, התוויות קליניות והתוויות נגד.`;
+    await sendMessage(prompt);
+  };
+
+  // Submits the naturopath's question from the manual chat input
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+    setInput('');
+    await sendMessage(text);
   };
 
   return (
@@ -442,92 +476,105 @@ export default function Chat() {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-1.5">
                 <span className="text-base">📊</span>
-                <h3 className="text-sm font-bold text-stone-800 dark:text-stone-100">מייצא פרופיל רכיבים לאקסל</h3>
+                <h3 className="text-sm font-bold text-stone-800 dark:text-stone-100">מייצא טבלאות לצ'אט ואקסל</h3>
               </div>
-              <Tooltip text="מזהה אוטומטית את צמח המרפא או המזון שעליו דיברתם בצ'אט ומייצר דוח קליני מקיף הכולל ויטמינים, מינרלים, חומרים פעילים והתוויות נגד, מוכן לייצוא ישיר לקובץ אקסל מעוצב." />
+              <Tooltip text="כלי זה מאפשר לכם להפיק בקלות טבלאות קליניות מפורטות על כל צמח, שמן או מזון, ולייצא אותן ישירות לקובץ אקסל מעוצב ומסודר בלחיצת כפתור אחת!" />
             </div>
 
-            {/* Waiting for plant subject topic */}
-            {profileStatus === 'idle' && (
-              <div className="text-center py-6 px-3 rounded-lg border border-dashed border-stone-200 dark:border-slate-800">
-                <span className="text-3xl mb-2 block">🌾</span>
-                <p className="text-xs text-stone-500 dark:text-stone-400 font-medium">שוחחו בצ'אט על צמח מרפא או מזון כדי להפיק כאן פרופיל קליני מפורט.</p>
-                <p className="text-[10px] text-stone-400 dark:text-stone-500 mt-2 font-medium">לדוגמה: "האם גרעיני חמניה מכילים מגנזיום?" או "ספר לי על הסגולות של ג'ינג'ר"</p>
-              </div>
-            )}
+            {/* Step-by-Step Friendly Instructions with Input Trigger Form */}
+            {!activeTable && (
+              <div className="rounded-lg border border-stone-200/80 dark:border-slate-800/80 p-3 bg-stone-50 dark:bg-slate-900/50 space-y-3">
+                <div className="text-center pb-2 border-b border-stone-200/60 dark:border-slate-800/60">
+                  <span className="text-2xl block mb-1">📋</span>
+                  <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">איך להפיק קובץ אקסל?</p>
+                </div>
+                <div className="text-[11px] text-stone-600 dark:text-stone-400 space-y-2 leading-relaxed">
+                  <p>כלי זה מפיק עבורכם טבלת ערכים מקיפה המבוססת אך ורק על מקורות רפואיים מהימנים.</p>
+                  <ol className="list-decimal list-inside space-y-1 text-stone-500 dark:text-stone-400">
+                    <li>הקלידו את שם הרכיב או הצמח למטה.</li>
+                    <li>לחצו על <strong>"הפק טבלה בצ'אט"</strong>.</li>
+                    <li>העוזר הבוטני יסרוק את המאגר ויציג טבלה מפורטת בצ'אט.</li>
+                    <li>הטבלה תיטען לכאן מיידית ותוכלו להוריד אותה כקובץ אקסל.</li>
+                  </ol>
+                </div>
 
-            {/* Parsing active plant data spinner */}
-            {profileStatus === 'loading' && (
-              <div className="py-8 text-center space-y-3">
-                <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                <p className="text-xs text-stone-500 dark:text-stone-400 animate-pulse font-medium">מפיק פרופיל רכיבים קליני עבור <span className="font-bold text-emerald-600 dark:text-emerald-400">"{activeEntity}"</span>...</p>
-              </div>
-            )}
-
-            {/* Error fallback wrapper */}
-            {profileStatus === 'error' && (
-              <div className="p-3 text-center rounded-lg border border-red-200/80 bg-red-50/50 dark:bg-red-950/20 text-red-700 dark:text-red-300 animate-fadeIn">
-                <p className="text-xs font-bold text-red-800 dark:text-red-300">שגיאה בהפקת הפרופיל הקליני:</p>
-                <p className="text-[10px] mt-1.5 font-semibold leading-relaxed text-red-700 dark:text-red-400/90 whitespace-pre-wrap">{profileError || 'שגיאה בתקשורת עם השרת'}</p>
-                <button 
-                  onClick={() => fetchProfile(activeEntity)}
-                  className="mt-2.5 text-[10px] underline font-bold hover:text-red-800 dark:hover:text-red-200 cursor-pointer block mx-auto transition-colors"
-                >
-                  נסה שוב
-                </button>
+                <div className="pt-3 border-t border-stone-200/60 dark:border-slate-800/60 space-y-2">
+                  <label className="block text-[10px] font-bold text-stone-700 dark:text-stone-300">
+                    שם הצמח, השמן או המאכל:
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full rounded-lg border border-stone-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs outline-none transition-all focus:ring-2 focus:ring-emerald-500/50 text-stone-800 dark:text-stone-100"
+                    placeholder="למשל: ג'ינג'ר, שמן אורגנו, גרעיני חמניה..."
+                    value={plantInput}
+                    onChange={(e) => setPlantInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (plantInput.trim() && status !== 'loading') {
+                          handleTriggerTableGeneration(plantInput);
+                        }
+                      }
+                    }}
+                    disabled={status === 'loading'}
+                    dir="rtl"
+                  />
+                  <button
+                    onClick={() => handleTriggerTableGeneration(plantInput)}
+                    disabled={!plantInput.trim() || status === 'loading'}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-white font-bold text-xs shadow-md transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:scale-100 disabled:cursor-not-allowed cursor-pointer hover:shadow-lg"
+                    style={{ background: 'var(--accent)' }}
+                  >
+                    <span>✨ הפק טבלה בצ'אט</span>
+                  </button>
+                </div>
               </div>
             )}
 
             {/* Beautiful loaded profile dataset */}
-            {profileStatus === 'success' && profileData && (
+            {activeTable && (
               <div className="space-y-4 animate-fadeIn">
-                <div className="flex items-center justify-between pb-2 border-b border-stone-200 dark:border-slate-800">
-                  <span className="text-xs font-semibold text-stone-500 dark:text-stone-400">צמח פעיל מזוהה:</span>
-                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
-                    {profileData.entity || activeEntity}
+                <div className="flex flex-col gap-1 pb-2 border-b border-stone-200 dark:border-slate-800">
+                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    <span>נמצאה טבלה מוכנה לייצוא!</span>
+                  </span>
+                  <span className="text-xs font-bold text-stone-800 dark:text-stone-100 truncate">
+                    {activeTable.title}
                   </span>
                 </div>
 
-                {/* Grid preview showing top 5 botanical components */}
+                {/* Grid preview showing parsed headers and top 4 rows */}
                 <div className="overflow-hidden rounded-lg border border-stone-200 dark:border-slate-800 text-[11px]">
                   <table className="w-full text-right border-collapse">
                     <thead>
                       <tr className="bg-stone-100 dark:bg-slate-800/80 text-stone-600 dark:text-stone-300 font-bold border-b border-stone-200 dark:border-slate-800">
-                        <th className="p-2 w-1/3">רכיב</th>
-                        <th className="p-2 w-1/4">סוג</th>
-                        <th className="p-2 w-1/3">התוויה</th>
+                        {activeTable.headers.slice(0, 3).map((h, idx) => (
+                          <th key={idx} className="p-2 truncate">{h}</th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-stone-200/60 dark:divide-slate-800/60">
-                      {profileData.profile && profileData.profile.slice(0, 5).map((item, idx) => (
+                      {activeTable.rows.slice(0, 4).map((row, idx) => (
                         <tr key={idx} className="hover:bg-stone-100/30 dark:hover:bg-slate-800/20 text-stone-700 dark:text-stone-300">
-                          <td className="p-2 font-semibold">{item.component}</td>
-                          <td className="p-2 text-stone-500 dark:text-stone-400">{item.type}</td>
-                          <td className="p-2 truncate max-w-[100px]" title={item.indication}>{item.indication}</td>
+                          {row.slice(0, 3).map((cell, cIdx) => (
+                            <td key={cIdx} className="p-2 truncate max-w-[110px]" title={cell}>{cell}</td>
+                          ))}
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {profileData.profile && profileData.profile.length > 5 && (
+                  {activeTable.rows.length > 4 && (
                     <div className="p-1.5 text-center bg-stone-50 dark:bg-slate-900 border-t border-stone-200 dark:border-slate-800 text-[9px] text-stone-400 dark:text-stone-500 font-medium">
-                      +{profileData.profile.length - 5} רכיבים נוספים ייכללו בקובץ המלא
+                      +{activeTable.rows.length - 4} שורות נוספות ייכללו בקובץ המלא
                     </div>
                   )}
-                </div>
-
-                {/* Contraindications Warning Box */}
-                <div className="p-2.5 rounded-lg border border-amber-200 dark:border-amber-950/60 bg-amber-50/50 dark:bg-amber-950/20 text-[10px] text-amber-800 dark:text-amber-300">
-                  <div className="font-bold flex items-center gap-1 mb-1">
-                    <span>⚠️</span>
-                    <span>התוויות נגד ואזהרות:</span>
-                  </div>
-                  <p className="leading-relaxed font-medium">{profileData.contraindications}</p>
                 </div>
 
                 {/* Actionable export trigger button */}
                 <button
                   onClick={handleExportToExcel}
-                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-white font-bold text-xs shadow-md transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] cursor-pointer hover:shadow-lg"
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-white font-bold text-xs shadow-md transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] cursor-pointer hover:shadow-lg animate-pulse"
                   style={{ background: 'var(--accent)' }}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -535,7 +582,15 @@ export default function Chat() {
                     <polyline points="7 10 12 15 17 10" />
                     <line x1="12" y1="15" x2="12" y2="3" />
                   </svg>
-                  <span>ייצא פרופיל מלא לאקסל</span>
+                  <span>ייצא טבלה זו לאקסל מעוצב</span>
+                </button>
+
+                {/* Reset button to clear and generate a new one */}
+                <button
+                  onClick={handleClearActiveTable}
+                  className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg border border-stone-200 hover:bg-stone-50 dark:border-slate-800 dark:hover:bg-slate-800/50 text-stone-600 dark:text-stone-300 font-medium text-[11px] transition-colors cursor-pointer"
+                >
+                  <span>🔄 הפק פרופיל עבור צמח אחר</span>
                 </button>
               </div>
             )}
@@ -606,8 +661,8 @@ export default function Chat() {
           >
             <span>🧰</span>
             <span>ארגז כלים</span>
-            {/* Glowing dot if active profile is ready to download */}
-            {profileStatus === 'success' && (
+            {/* Glowing dot if active table is ready to download */}
+            {activeTable && (
               <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 flex h-2.5 w-2.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
