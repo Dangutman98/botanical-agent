@@ -439,7 +439,7 @@ export default function Chat() {
   const handleTriggerTableGeneration = async (plantName: string) => {
     const trimmed = plantName.trim();
     if (!trimmed) return;
-    const prompt = `אנא הפק טבלה קלינית מפורטת עבור ${trimmed} המציגה את הרכיבים הפעילים/התזונתיים, התוויות קליניות והתוויות נגד.`;
+    const prompt = `אנא הפק טבלה קלינית מפורטת עבור ${trimmed} בפורמט טבלת Markdown רשמית ותקנית (עם עמודות מופרדות בסימני צינור |). הטבלה צריכה להציג בצורה מסודרת את הרכיבים הפעילים/התזונתיים, התוויות קליניות והתוויות נגד. שימוש בטבלת Markdown הכרחי לצורך ייצוא תקין לקובץ Excel!`;
     await sendMessage(prompt);
   };
 
