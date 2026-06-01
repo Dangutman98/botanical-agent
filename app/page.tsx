@@ -226,6 +226,15 @@ function MessageBubble({ message }: { message: ChatMessage }) {
                   .replace(/\s*[-–—]$/, '')
                   .trim();
                   
+                // Strip the generic placeholder "Site Name" if present to avoid display clutter
+                if (displayName.toLowerCase().includes('site name')) {
+                  displayName = displayName
+                    .replace(/site name/gi, '')
+                    .replace(/^[-–—\s]+/, '')
+                    .replace(/[-–—\s]+$/, '')
+                    .trim();
+                }
+                  
                 try {
                   displayName = decodeURIComponent(displayName);
                 } catch {}
