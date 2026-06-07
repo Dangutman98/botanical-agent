@@ -19,7 +19,7 @@ Always end your answer with a "מקורות:" section.
 You MUST list EVERY source that contributed to your answer.
 Format each source as a simple text bullet with the actual article/page title (or site name) and the URL: * Page Title - https://domain.com/url (strictly avoid using the generic placeholder "Site Name").`;
 
-const GROQ_MODEL = 'llama-3.1-8b-instant';
+const GROQ_MODEL = 'gemma2-9b-it'; // 15,000 TPM on free tier vs 6,000 for llama-3.1-8b-instant
 
 type ChatRequest = {
   message: string;
@@ -35,13 +35,13 @@ export async function POST(req: Request) {
     }
 
     console.info('[chat] Querying hybrid vector store...');
-    const contextDocs = await queryHybridBotanicalKnowledge(message, 5);
+    const contextDocs = await queryHybridBotanicalKnowledge(message, 3); // topK 5→3 to reduce tokens
 
     let contextBlock = '';
     if (contextDocs.length > 0) {
       contextBlock = '\n\nContext Material:\n' +
         contextDocs.map((d, i) =>
-          `[${i + 1}] ${d.title}\nURL: ${d.url}\n${d.content.slice(0, 2000)}`
+          `[${i + 1}] ${d.title}\nURL: ${d.url}\n${d.content.slice(0, 800)}` // 2000→800 chars per doc
         ).join('\n\n');
     } else {
       contextBlock = '\n\nContext Material:\nNo relevant sources were found in the knowledge base.';
@@ -54,7 +54,9 @@ export async function POST(req: Request) {
     ];
 
     if (history && Array.isArray(history)) {
-      for (const msg of history) {
+      // Limit to last 6 messages (3 exchanges) to stay within token budget
+      const recentHistory = history.slice(-6);
+      for (const msg of recentHistory) {
         messages.push({ role: msg.role, content: msg.content });
       }
     }
