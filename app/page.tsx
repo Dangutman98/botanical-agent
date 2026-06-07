@@ -121,8 +121,8 @@ function renderMarkdown(text: string): React.ReactNode {
   });
 }
 
-// Scans backward through chat messages to parse the latest Markdown table, resolving plant names for context
-function extractLastTableFromMessages(messages: ChatMessage[], defaultPlantName?: string): TableData | null {
+// Scans backward through chat messages to parse the latest Markdown table
+function extractLastTableFromMessages(messages: ChatMessage[]): TableData | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== 'assistant') continue;
@@ -172,34 +172,16 @@ function extractLastTableFromMessages(messages: ChatMessage[], defaultPlantName?
     }
 
     if (headers.length > 0 && rows.length > 0) {
-      // Resolve descriptive title: try defaultPlantName, scan user messages, or fallback to text before table
-      let plantName = defaultPlantName || '';
-      if (!plantName) {
-        for (let k = i - 1; k >= 0; k--) {
-          const userMsg = messages[k];
-          if (userMsg.role === 'user') {
-            const match = userMsg.text.match(/(?:עבור|של|בצמח|במזון)\s+([א-ת\s]+)/);
-            if (match) {
-              plantName = match[1].trim();
-              break;
-            }
-          }
-        }
-      }
-
+      // Find a descriptive title from the text preceding the table
       let title = 'פרופיל רכיבים קליני';
-      if (plantName) {
-        title = `פרופיל רכיבים: ${plantName}`;
+      const textBeforeTable = lines.slice(0, Math.max(0, dividerIndex - 1)).join(' ').trim();
+      const titleMatch = textBeforeTable.match(/(?:עבור|של|בצמח|במזון)\s+([א-ת\s]+)/);
+      if (titleMatch) {
+        title = `פרופיל רכיבים: ${titleMatch[1].trim()}`;
       } else {
-        const textBeforeTable = lines.slice(0, Math.max(0, dividerIndex - 1)).join(' ').trim();
-        const titleMatch = textBeforeTable.match(/(?:עבור|של|בצמח|במזון)\s+([א-ת\s]+)/);
-        if (titleMatch) {
-          title = `פרופיל רכיבים: ${titleMatch[1].trim()}`;
-        } else {
-          const cleanPreText = textBeforeTable.replace(/[*#]/g, '').trim();
-          if (cleanPreText.length > 0) {
-            title = cleanPreText.slice(0, 45) + (cleanPreText.length > 45 ? '...' : '');
-          }
+        const cleanPreText = textBeforeTable.replace(/[*#]/g, '').trim();
+        if (cleanPreText.length > 0) {
+          title = cleanPreText.slice(0, 45) + (cleanPreText.length > 45 ? '...' : '');
         }
       }
 
@@ -208,104 +190,6 @@ function extractLastTableFromMessages(messages: ChatMessage[], defaultPlantName?
   }
 
   return null;
-}
-
-// Structure representing different block types inside an assistant message bubble
-type MessageBlock = 
-  | { type: 'text'; lines: string[] }
-  | { type: 'table'; headers: string[]; rows: string[][] };
-
-// Parses raw markdown message text into text blocks and structured Markdown tables
-function parseMessageBlocks(text: string): MessageBlock[] {
-  const lines = text.split('\n');
-  const blocks: MessageBlock[] = [];
-  let currentTextLines: string[] = [];
-  let inTable = false;
-  let tableHeaders: string[] = [];
-  let tableRows: string[][] = [];
-  let dividerIndex = -1;
-
-  const flushText = () => {
-    if (currentTextLines.length > 0) {
-      blocks.push({ type: 'text', lines: [...currentTextLines] });
-      currentTextLines = [];
-    }
-  };
-
-  const flushTable = () => {
-    if (tableHeaders.length > 0 && tableRows.length > 0) {
-      blocks.push({ type: 'table', headers: [...tableHeaders], rows: [...tableRows] });
-    } else {
-      // If table parsing failed or was incomplete, flush back as text lines
-      if (tableHeaders.length > 0) {
-        currentTextLines.push(`| ${tableHeaders.join(' | ')} |`);
-        if (dividerIndex !== -1) {
-          currentTextLines.push(`| ${tableHeaders.map(() => '---').join(' | ')} |`);
-        }
-      }
-      tableRows.forEach(row => {
-        currentTextLines.push(`| ${row.join(' | ')} |`);
-      });
-      flushText();
-    }
-    tableHeaders = [];
-    tableRows = [];
-    inTable = false;
-    dividerIndex = -1;
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    
-    if (line.startsWith('|') && line.endsWith('|')) {
-      const cells = line
-        .split('|')
-        .map(c => c.trim())
-        .filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
-
-      const isDivider = cells.length > 0 && cells.every(c => /^[:-]+$/.test(c));
-
-      if (isDivider) {
-        dividerIndex = i;
-        inTable = true;
-        // Grab headers from the previous text line if possible
-        if (currentTextLines.length > 0) {
-          const prevLine = currentTextLines[currentTextLines.length - 1].trim();
-          if (prevLine.startsWith('|') && prevLine.endsWith('|')) {
-            const headerCells = prevLine
-              .split('|')
-              .map(c => c.trim())
-              .filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
-            
-            // Remove the header line from text lines since it's now part of the table
-            currentTextLines.pop();
-            flushText(); // Flush preceding text lines before table start
-            tableHeaders = headerCells;
-          }
-        }
-        continue;
-      }
-
-      if (inTable) {
-        tableRows.push(cells);
-      } else {
-        // Collect as potential text lines until we hit a divider
-        currentTextLines.push(lines[i]);
-      }
-    } else {
-      if (inTable) {
-        flushTable();
-      }
-      currentTextLines.push(lines[i]);
-    }
-  }
-
-  if (inTable) {
-    flushTable();
-  }
-  flushText();
-
-  return blocks;
 }
 
 // Represents a single text message card in the conversation feed
@@ -323,42 +207,13 @@ function MessageBubble({ message }: { message: ChatMessage }) {
     );
   }
 
-  const blocks = parseMessageBlocks(content);
-
   return (
     <div className="animate-fadeIn flex justify-end mb-4">
       <div className="max-w-[90%] rounded-2xl rounded-bl-md px-5 py-3 border border-stone-200/60 dark:border-slate-800/40" style={{ background: 'var(--agent-bubble)', boxShadow: '0 2px 12px var(--shadow)' }}>
         <div className="mb-2 leading-relaxed text-sm md:text-base" style={{ color: 'var(--agent-text)', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
-          {blocks.map((block, bIdx) => {
-            if (block.type === 'text') {
-              return block.lines.map((line, lIdx) => (
-                <p key={`${bIdx}-${lIdx}`} className="mb-1 min-h-[1em]">{renderMarkdown(line)}</p>
-              ));
-            } else {
-              return (
-                <div key={bIdx} className="my-3 overflow-x-auto rounded-xl border border-stone-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900/50">
-                  <table className="w-full text-right border-collapse text-xs md:text-sm">
-                    <thead>
-                      <tr className="bg-stone-50 dark:bg-slate-800 border-b border-stone-200 dark:border-slate-800 text-stone-600 dark:text-stone-300 font-bold">
-                        {block.headers.map((h, idx) => (
-                          <th key={idx} className="p-3 border-l last:border-l-0 border-stone-200 dark:border-slate-800">{renderMarkdown(h)}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-200/60 dark:divide-slate-800/60 text-stone-700 dark:text-stone-300">
-                      {block.rows.map((row, idx) => (
-                        <tr key={idx} className="hover:bg-stone-50/50 dark:hover:bg-slate-800/20">
-                          {row.map((cell, cIdx) => (
-                            <td key={cIdx} className="p-3 border-l last:border-l-0 border-stone-200/60 dark:border-slate-800/60">{renderMarkdown(cell)}</td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            }
-          })}
+          {content.split('\n').map((line, i) => (
+            <p key={i} className="mb-1">{renderMarkdown(line)}</p>
+          ))}
         </div>
         {sources.length > 0 && (
           <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--accent-light)' }}>
@@ -460,13 +315,13 @@ export default function Chat() {
 
   // Synchronize active table from chat history whenever messages change
   useEffect(() => {
-    const table = extractLastTableFromMessages(messages, plantInput);
+    const table = extractLastTableFromMessages(messages);
     if (table) {
       setActiveTable(table);
       // Auto open sidebar to alert the naturopath that the Excel export is ready!
       setSidebarOpen(true);
     }
-  }, [messages, plantInput]);
+  }, [messages]);
 
   // Clears the active table state to allow entering a new plant name
   const handleClearActiveTable = () => {
