@@ -1,9 +1,3 @@
-import { pipeline, env } from '@xenova/transformers';
-
-// Configure ONNX model loader to use process environment cache or local fallback
-env.allowLocalModels = true;
-env.cacheDir = process.env.TRANSFORMERS_CACHE || '/tmp';
-
 // Singleton placeholder for local model backup
 let localExtractor: any = null;
 
@@ -102,7 +96,14 @@ export async function getEmbedding(text: string, isQuery = true): Promise<number
   // 2. Fallback to local CPU-execution in @xenova/transformers (local machine dev/scraping fallback only)
   try {
     if (!localExtractor) {
-      console.info('[embeddings] Loading local multilingual-e5-small model...');
+      console.info('[embeddings] Loading local multilingual-e5-small model dynamically...');
+      // Dynamic import prevents loading heavy ONNX runtime modules on serverless environments during cold starts
+      const { pipeline, env } = await import('@xenova/transformers');
+      
+      // Configure ONNX model loader to use environment cache or local fallback
+      env.allowLocalModels = true;
+      env.cacheDir = process.env.TRANSFORMERS_CACHE || '/tmp';
+      
       localExtractor = await pipeline('feature-extraction', 'Xenova/multilingual-e5-small');
     }
     const output = await localExtractor(queryText, { pooling: 'mean', normalize: true });
