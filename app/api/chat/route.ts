@@ -19,7 +19,7 @@ Always end your answer with a "מקורות:" section.
 You MUST list EVERY source that contributed to your answer.
 Format each source as a simple text bullet with the actual article/page title (or site name) and the URL: * Page Title - https://domain.com/url (strictly avoid using the generic placeholder "Site Name").`;
 
-const GROQ_MODEL = 'llama-3.1-8b-instant';
+const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
 
 type ChatRequest = {
   message: string;
