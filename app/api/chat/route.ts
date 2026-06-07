@@ -11,7 +11,7 @@ CRITICAL RULES:
 3. DO NOT LIST WEBSITE MENUS: Ignore generic site categories like "חליטות צמחים", "פטריות בריאות", "צמחי מרפא עתיקים", or "שמנים אתריים". Extract the actual therapeutic plants mentioned in the article body!
 4. If the source text does not mention specific plant names, respond with "המאמרים שנמצאו לא ציינו שמות ספציפיים של צמחים". Do not invent plants.
 5. Respond ONLY in Hebrew. ABSOLUTELY NO Chinese, Japanese, or Korean characters.
-6. MANDATORY MARKDOWN TABLES: Whenever the user asks for a table, a list of active components, or a plant profile, you MUST format the response inside a structured Markdown table using '|' column separators. This is essential for the system's spreadsheet export tool.
+6. MARKDOWN TABLES: ONLY format the response as a Markdown table when the user explicitly requests a table or spreadsheet. For general conversational questions, respond with clear text, bullet points, or paragraphs.
 
 FORMATTING SOURCES (CRITICAL):
 Do NOT use Markdown link syntax like [text](url).
@@ -19,7 +19,7 @@ Always end your answer with a "מקורות:" section.
 You MUST list EVERY source that contributed to your answer.
 Format each source as a simple text bullet with the actual article/page title (or site name) and the URL: * Page Title - https://domain.com/url (strictly avoid using the generic placeholder "Site Name").`;
 
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_MODEL = 'llama-3.1-8b-instant';
 
 type ChatRequest = {
   message: string;
