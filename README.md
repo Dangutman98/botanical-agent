@@ -73,4 +73,4 @@ node scripts/crawl-all.js
 ---
 
 ## 🤝 Contact & Portfolio
-Designed and built by **Dan Gutman** as a showcase project for AI Solutions Engineering. Feel free to reach out or explore the repository! 🌟
+Designed and built by **Dan Gutman** as a showcase project for my personal portfolio. Feel free to reach out or explore the repository! 🌟
