@@ -183,6 +183,11 @@ export async function queryHybridBotanicalKnowledge(
     return [];
   }
 
+  // Filter out any noisy sitemap URLs from both candidate lists before fusion
+  const isCleanUrl = (url: string) => !url.includes('sitemap') && !url.includes('מפת-אתר') && !url.includes('מפת_אתר');
+  denseCandidates = denseCandidates.filter(c => isCleanUrl(c.url));
+  sparseCandidates = sparseCandidates.filter(c => isCleanUrl(c.url));
+
   // 4. Blend dense and sparse results using Reciprocal Rank Fusion
   const fusedResults = reciprocalRankFusion(
     denseCandidates,
