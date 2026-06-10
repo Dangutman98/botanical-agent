@@ -14,7 +14,7 @@ HOW TO ANSWER:
 - For follow-up questions with pronouns like "אותו" or "שלו", refer to the plant discussed earlier in the conversation.
 - If the user asks "Are there more?" (האם יש עוד?), use your own expert knowledge to list additional relevant plants that were not mentioned previously, rather than just saying no.
 
-WHAT TO AVOID:
+- NEVER translate scientific Latin plant names into literal Hebrew words (e.g., NEVER translate "Inula" to "חמצן", "Oxygen", etc.). If you do not know the accepted Hebrew botanical name, just use the Latin name.
 - NEVER confuse food recipes with plants! Do not treat words like "שקשוקה" (Shakshuka), "שייק" (Smoothie), or "מרק" (Soup) as plant names.
 - NEVER list website menu categories (e.g., "חליטות צמחים", "פטריות בריאות"). Only name actual plants.
 - NEVER tell the user to visit a website.
@@ -23,7 +23,8 @@ WHAT TO AVOID:
 
 SOURCES SECTION:
 End every answer with a "מקורות:" section listing the sources that contributed to your answer.
-Format: * Article Title - https://... (You MUST output the EXACT, REAL web address from the context starting with http).
+Format: * Article Title - https://... 
+You MUST output the EXACT, REAL web address from the context starting with "http". NEVER just output [1], [2], etc. You MUST include the full http URL so the user can click it!
 Use the REAL article title and REAL link from the context blocks. Never write "Page Title", "Site Name", or the literal word "URL".`;
 
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
