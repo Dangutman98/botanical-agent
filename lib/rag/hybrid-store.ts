@@ -109,7 +109,8 @@ export function reciprocalRankFusion(
 // Global hybrid search entry point
 export async function queryHybridBotanicalKnowledge(
   userQuery: string,
-  topK = 3
+  topK = 5,
+  secondaryQuery?: string
 ): Promise<{ title: string; url: string; content: string }[]> {
   console.info('[hybrid-store] Querying hybrid store for:', userQuery);
 
@@ -126,7 +127,7 @@ export async function queryHybridBotanicalKnowledge(
         'Api-Key': process.env.PINECONE_API_KEY || '',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ vector, topK: 15, includeMetadata: true }),
+      body: JSON.stringify({ vector, topK: 20, includeMetadata: true }),
     });
 
     if (pineconeResponse.ok) {
@@ -144,12 +145,31 @@ export async function queryHybridBotanicalKnowledge(
     console.warn('[hybrid-store] Dense semantic search failed (HuggingFace/Pinecone error). Falling back to pure BM25 keyword search:', error);
   }
 
-  // 2. Try Sparse Keyword Search (Local BM25 query)
+  // 2. Try Sparse Keyword Search (Local BM25 query) — bilingual: search with both original and translated query
   try {
     const bm25 = getBM25Instance();
     if (bm25) {
-      sparseCandidates = bm25.search(userQuery, 15).map(res => res.chunk);
-      console.info(`[hybrid-store] Local BM25 search found ${sparseCandidates.length} sparse candidates.`);
+      const primaryResults = bm25.search(userQuery, 20).map(res => res.chunk);
+      console.info(`[hybrid-store] BM25 primary search found ${primaryResults.length} sparse candidates.`);
+
+      if (secondaryQuery && secondaryQuery.trim() !== userQuery.trim()) {
+        const secondaryResults = bm25.search(secondaryQuery, 20).map(res => res.chunk);
+        console.info(`[hybrid-store] BM25 secondary (bilingual) search found ${secondaryResults.length} sparse candidates.`);
+
+        // Merge and deduplicate: primary results first, then any unique secondary results
+        const seenKeys = new Set(primaryResults.map(c => `${c.url}::${c.title}`));
+        const merged = [...primaryResults];
+        for (const chunk of secondaryResults) {
+          const key = `${chunk.url}::${chunk.title}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            merged.push(chunk);
+          }
+        }
+        sparseCandidates = merged;
+      } else {
+        sparseCandidates = primaryResults;
+      }
     } else {
       console.warn('[hybrid-store] BM25 cache is empty or chunks.json is missing.');
     }
@@ -168,8 +188,8 @@ export async function queryHybridBotanicalKnowledge(
     denseCandidates,
     sparseCandidates,
     30,   // RRF constant k
-    0.5,  // Dense weight
-    2.0   // BM25 weight (Heavily prioritize exact Hebrew plant keyword matches)
+    1.5,  // Dense weight (multilingual semantic — works cross-language)
+    1.0   // BM25 weight (keyword match — monolingual, complementary)
   );
 
   console.info(`[hybrid-store] Successfully fused and returned top ${topK} results.`);
