@@ -115,7 +115,7 @@ export async function POST(req: Request) {
 
     // Step 2: Query hybrid vector store with the expanded bilingual queries
     console.info('[chat] Querying hybrid vector store...');
-    const contextDocs = await queryHybridBotanicalKnowledge(resolvedQuery, 5, secondaryQuery || undefined);
+    const contextDocs = await queryHybridBotanicalKnowledge(resolvedQuery, 8, secondaryQuery || undefined);
 
     let contextBlock = '';
     if (contextDocs.length > 0) {

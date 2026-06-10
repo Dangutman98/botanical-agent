@@ -192,6 +192,19 @@ export async function queryHybridBotanicalKnowledge(
     1.0   // BM25 weight (keyword match — monolingual, complementary)
   );
 
-  console.info(`[hybrid-store] Successfully fused and returned top ${topK} results.`);
-  return fusedResults.slice(0, topK);
+  // 5. Diversify: limit to max 2 chunks per URL to ensure results come from
+  //    different articles/plants (prevents 5 chunks from the same Bacopa article)
+  const urlCounts = new Map<string, number>();
+  const diverseResults: { title: string; url: string; content: string }[] = [];
+  for (const doc of fusedResults) {
+    const count = urlCounts.get(doc.url) || 0;
+    if (count < 2) {
+      diverseResults.push(doc);
+      urlCounts.set(doc.url, count + 1);
+      if (diverseResults.length >= topK) break;
+    }
+  }
+
+  console.info(`[hybrid-store] Returning ${diverseResults.length} diverse results (from ${urlCounts.size} unique URLs).`);
+  return diverseResults;
 }
