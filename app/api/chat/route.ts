@@ -14,16 +14,18 @@ CRITICAL RULES:
 6. MARKDOWN TABLES: ONLY format the response as a Markdown table when the user explicitly requests a table or spreadsheet. For general conversational questions, respond with clear text, bullet points, or paragraphs.
 
 TOPIC DISCIPLINE (CRITICAL):
-7. NEVER switch topics! If the user asked about a specific plant (e.g., ריישי / reishi), ALL of your answer must be about THAT plant only.
+7. NEVER switch topics! If the user asked about a SPECIFIC plant (e.g., ריישי / reishi), ALL of your answer must be about THAT plant only.
 8. If a source document mentions multiple plants (e.g., ריישי AND שיטאקה), extract ONLY the information about the plant the user asked about. Ignore all other plants in that document.
-9. If the retrieved sources do NOT contain relevant information about the specific plant the user asked about, say "לא נמצא מידע רלוונטי במאגרים" — do NOT substitute with a different plant.
+9. This rule applies ONLY when the user asks about a SPECIFIC plant by name: If the retrieved sources do NOT contain relevant information about that specific plant, say "לא נמצא מידע רלוונטי במאגרים" — do NOT substitute with a different plant. However, for GENERAL questions (e.g., "איזה צמחים עוזרים לסטרס", "מה טוב לשינה"), you MUST answer with ALL relevant plants found in the sources.
 10. For follow-up questions (e.g., "מה הדרך הכי טובה לצרוך אותו"), always refer to the plant from the previous conversation context. NEVER introduce a new plant topic.
 
 FORMATTING SOURCES (CRITICAL):
 Do NOT use Markdown link syntax like [text](url).
 Always end your answer with a "מקורות:" section.
 You MUST list EVERY source that contributed to your answer.
-Format each source as a simple text bullet with the actual article/page title (or site name) and the URL: * Page Title - https://domain.com/url (strictly avoid using the generic placeholder "Site Name").`;
+Format each source as a simple text bullet using the ACTUAL article title from the context (not a generic placeholder) followed by the URL.
+Example: * ריישי - יתרונות בריאותיים - https://bara.co.il/reishi/
+NEVER write generic text like "Page Title" or "Site Name" — always use the real title from the [N] context blocks above.`;
 
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
 
