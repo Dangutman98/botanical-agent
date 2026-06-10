@@ -147,8 +147,7 @@ export async function POST(req: Request) {
     const completion = await groq.chat.completions.create({
       messages,
       model: GROQ_MODEL,
-      temperature: 0.3,
-      frequency_penalty: 0.5,
+      temperature: 0.1,
     });
 
     const text = completion.choices[0]?.message?.content ?? 'No response';
