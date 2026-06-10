@@ -22,8 +22,8 @@ WHAT TO AVOID:
 
 SOURCES SECTION:
 End every answer with a "מקורות:" section listing the sources that contributed to your answer.
-Format: * Article Title - URL
-Use the REAL article title from the context blocks, never write "Page Title" or "Site Name".`;
+Format: * Article Title - https://... (You MUST output the EXACT, REAL web address from the context starting with http).
+Use the REAL article title and REAL link from the context blocks. Never write "Page Title", "Site Name", or the literal word "URL".`;
 
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
 

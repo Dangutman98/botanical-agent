@@ -278,27 +278,31 @@ function MessageBubble({ message }: { message: ChatMessage }) {
                   ? `${friendlyDomain}: ${displayName}` 
                   : friendlyDomain;
 
+                if (!url) {
+                  return (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-50 text-green-700 text-xs font-medium border border-green-100"
+                    >
+                      {displayTitle}
+                    </span>
+                  );
+                }
+
                 return (
                   <a
                     key={i}
-                    href={url || '#'}
+                    href={url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all hover:scale-[1.02] hover:opacity-90 active:scale-[0.98] border shadow-sm"
-                    style={{
-                      background: 'var(--source-bg)',
-                      borderColor: 'var(--accent-light)',
-                      color: 'var(--accent)',
-                      textDecoration: 'none',
-                    }}
-                    title={url}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-50 text-green-700 hover:bg-green-100 text-xs font-medium transition-colors border border-green-100 hover:border-green-200"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    {displayTitle}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-70">
                       <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                       <polyline points="15 3 21 3 21 9" />
                       <line x1="10" y1="14" x2="21" y2="3" />
                     </svg>
-                    <span className="truncate max-w-[200px]">{displayTitle}</span>
                   </a>
                 );
               })}
