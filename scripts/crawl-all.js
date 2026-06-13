@@ -14,7 +14,7 @@ const cheerio = (() => { try { return require('cheerio'); } catch { console.erro
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const INGESTION_URL      = 'http://127.0.0.1:3000/api/ingestion';
-const INGESTED_URLS_FILE = path.join(__dirname, '..', 'ingested_urls.json');
+const INGESTED_URLS_FILE = path.join(__dirname, '..', 'data', 'ingested_urls.json');
 const CHUNK_SIZE         = 1200;   // characters per chunk
 const CHUNK_OVERLAP      = 150;    // overlap between chunks
 const REQUEST_DELAY_MS   = 1200;   // polite delay between requests

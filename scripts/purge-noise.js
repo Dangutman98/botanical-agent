@@ -20,7 +20,7 @@ if (fs.existsSync(envFile)) {
 }
 
 const CHUNKS_FILE = path.join(__dirname, '..', 'lib', 'rag', 'chunks.json');
-const INGESTED_URLS_FILE = path.join(__dirname, '..', 'ingested_urls.json');
+const INGESTED_URLS_FILE = path.join(__dirname, '..', 'data', 'ingested_urls.json');
 
 const PINECONE_HOST = process.env.PINECONE_HOST;
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY;

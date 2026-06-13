@@ -1,9 +1,0 @@
-{
-  "version": "2.0",
-  "routeKey": "$default",
-  "rawPath": "/api/chat",
-  "rawQueryString": "",
-  "headers": { "content-type": "application/json" },
-  "requestContext": { "http": { "method": "POST", "path": "/api/chat" } },
-  "body": "eyJtZXNzYWdlIjogInRlc3QifQ=="
-}
