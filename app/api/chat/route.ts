@@ -115,13 +115,13 @@ export async function POST(req: Request) {
 
     // Step 2: Query hybrid vector store with the expanded bilingual queries
     console.info('[chat] Querying hybrid vector store...');
-    const contextDocs = await queryHybridBotanicalKnowledge(resolvedQuery, 6, secondaryQuery || undefined);
+    const contextDocs = await queryHybridBotanicalKnowledge(resolvedQuery, 4, secondaryQuery || undefined);
 
     let contextBlock = '';
     if (contextDocs.length > 0) {
       contextBlock = '\n\nContext Material:\n' +
         contextDocs.map((d, i) =>
-          `[${i + 1}] ${d.title}\nURL: ${d.url}\n${d.content.slice(0, 800)}`
+          `[${i + 1}] ${d.title}\nURL: ${d.url}\n${d.content.slice(0, 500)}`
         ).join('\n\n');
     } else {
       contextBlock = '\n\nContext Material:\nNo relevant sources were found in the knowledge base.';
@@ -134,8 +134,8 @@ export async function POST(req: Request) {
     ];
 
     if (safeHistory.length > 0) {
-      // Limit to last 6 messages (3 exchanges) to stay within token budget
-      const recentHistory = safeHistory.slice(-6);
+      // Limit to last 4 messages (2 exchanges) to stay within token budget
+      const recentHistory = safeHistory.slice(-4);
       for (const msg of recentHistory) {
         messages.push({ role: msg.role, content: msg.content });
       }
