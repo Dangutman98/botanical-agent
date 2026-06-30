@@ -21,7 +21,7 @@ You MUST respond with a valid, clean JSON object matching this schema exactly, a
 If no components are mentioned in the sources, compile common clinical/naturopathic knowledge for that specific plant to populate at least 4 key components so the naturopath always gets a highly useful clinical sheet.
 Respond ONLY in Hebrew.`;
 
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_MODEL = 'llama-3.1-8b-instant';
 
 async function testExtract() {
   const entity = 'גרעיני חמניה';
