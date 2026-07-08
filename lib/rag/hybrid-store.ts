@@ -1,14 +1,32 @@
+// -----------------------------------------------------------------------------
+// RAG Hybrid Store (מנוע ה-RAG ההיברידי)
+// -----------------------------------------------------------------------------
+// קובץ זה הוא מוח השליפה (Retrieval) של המערכת.
+// הוא משלב שני מנועי חיפוש:
+// 1. חיפוש סמנטי (Dense) - מבוסס על משמעות המילים דרך Pinecone + HuggingFace.
+// 2. חיפוש מילות מפתח (Sparse) - מבוסס על מופעי מילים מדויקים דרך מנוע BM25 המקומי.
+//
+// הוא מאחד את התוצאות משני המנועים בעזרת אלגוריתם RRF (Reciprocal Rank Fusion).
+// -----------------------------------------------------------------------------
+
 import fs from 'fs';
 import path from 'path';
 import { BM25, type Chunk } from './bm25';
 import { getEmbedding } from './embeddings';
 
+// נתיב לקובץ המטמון המקומי שומר את כל הטקסטים שנשאבו מהאינטרנט.
+// מתחבר ל: script של ה-crawler ולמנוע ה-BM25
 const CHUNKS_FILE = path.join(process.cwd(), 'lib', 'rag', 'chunks.json');
 
-// In-memory cache for BM25 search engine
+// מטמון בזיכרון (In-memory cache) למנוע ה-BM25 כדי למנוע בנייה מחדש בכל בקשה.
 let bm25Instance: BM25 | null = null;
 let lastLoadedChunksLength = -1;
 
+/**
+ * פונקציה: getBM25Instance
+ * מה היא עושה: טוענת את קובץ ה-chunks מהדיסק ובונה את אינדקס החיפוש המקומי (BM25).
+ * מתי נבנה: נבנה רק פעם אחת, או מחדש אם נוספו טקסטים חדשים למאגר (לפי שינוי באורך המערך).
+ */
 function getBM25Instance(): BM25 | null {
   try {
     if (!fs.existsSync(CHUNKS_FILE)) {
@@ -22,7 +40,7 @@ function getBM25Instance(): BM25 | null {
       return null;
     }
 
-    // Only rebuild BM25 index if new chunks were added
+    // בנה מחדש רק אם יש כמות חדשה של chunks
     if (!bm25Instance || chunks.length !== lastLoadedChunksLength) {
       console.info(`[hybrid-store] Building BM25 index over ${chunks.length} chunks...`);
       bm25Instance = new BM25(chunks);
@@ -37,7 +55,11 @@ function getBM25Instance(): BM25 | null {
   }
 }
 
-// Thread-safe chunk saver to cache raw texts locally during crawling
+/**
+ * פונקציה: saveChunkLocally
+ * מה היא עושה: שומרת טקסטים חדשים שנסרקו אל הדיסק המקומי (לשימוש עתידי של BM25).
+ * לאן מתחברת: נקראת מתוך ingestion.controller.ts במהלך פעולת הסריקה (Crawling).
+ */
 export async function saveChunkLocally(chunk: { title: string; url: string; content: string }): Promise<void> {
   try {
     const parentDir = path.dirname(CHUNKS_FILE);
@@ -51,6 +73,7 @@ export async function saveChunkLocally(chunk: { title: string; url: string; cont
       chunks = JSON.parse(data);
     }
 
+    // מניעת כפילויות עפ"י URL וכותרת
     const exists = chunks.some(c => c.url === chunk.url && c.title === chunk.title);
     if (!exists) {
       const id = Buffer.from(chunk.url + chunk.title).toString('base64').slice(0, 50);
@@ -63,7 +86,12 @@ export async function saveChunkLocally(chunk: { title: string; url: string; cont
   }
 }
 
-// Reciprocal Rank Fusion (RRF) algorithm to blend dense & sparse lists
+/**
+ * אלגוריתם Reciprocal Rank Fusion (RRF)
+ * מה הוא עושה: מקבל 2 רשימות דירוג שונות (Pinecone ו-BM25), ומייצר מהן רשימה ממוזגת חכמה.
+ * הניקוד מחושב כפונקציה של המיקום של התוצאה ברשימה המקורית.
+ * ככל שהתוצאה מדורגת גבוה יותר בשני המנועים יחד, הציון הסופי שלה יזנק.
+ */
 export function reciprocalRankFusion(
   denseResults: { title: string; url: string; content: string }[],
   sparseResults: Chunk[],
@@ -74,7 +102,7 @@ export function reciprocalRankFusion(
   const scoreMap = new Map<string, { doc: { title: string; url: string; content: string }; score: number }>();
   const getDocKey = (url: string, title: string) => `${url}::${title}`;
 
-  // 1. Process dense (vector semantic) ranks
+  // 1. חישוב ניקוד לרשימת החיפוש הסמנטי (Dense)
   denseResults.forEach((doc, index) => {
     const rank = index + 1;
     const key = getDocKey(doc.url, doc.title);
@@ -82,7 +110,7 @@ export function reciprocalRankFusion(
     scoreMap.set(key, { doc, score });
   });
 
-  // 2. Process sparse (BM25 keyword) ranks
+  // 2. חישוב ניקוד לרשימת חיפוש מילות המפתח (BM25 Sparse)
   sparseResults.forEach((doc, index) => {
     const rank = index + 1;
     const key = getDocKey(doc.url, doc.title);
@@ -90,6 +118,7 @@ export function reciprocalRankFusion(
 
     const existing = scoreMap.get(key);
     if (existing) {
+      // אם המסמך הופיע גם ברשימה הסמנטית, הוא מקבל בונוס של שילוב הציונים
       existing.score += score;
     } else {
       scoreMap.set(key, {
@@ -99,14 +128,20 @@ export function reciprocalRankFusion(
     }
   });
 
-  // 3. Sort by combined fusion score descending
+  // 3. מיון כל התוצאות מהגבוה לנמוך
   const fused = Array.from(scoreMap.values());
   fused.sort((a, b) => b.score - a.score);
 
   return fused.map(f => f.doc);
 }
 
-// Global hybrid search entry point
+/**
+ * פונקציה ראשית: queryHybridBotanicalKnowledge
+ * מה היא עושה: מנהלת את תהליך שליפת המידע (Retrieval) עבור הצ'אט.
+ * שלבים: 1. חיפוש סמנטי, 2. חיפוש מילות מפתח, 3. היתוך RRF, 4. גיוון מקורות.
+ * 
+ * לאן מתחברת: מופעלת ע"י chat.controller.ts כאשר משתמש שולח הודעה.
+ */
 export async function queryHybridBotanicalKnowledge(
   userQuery: string,
   topK = 5,
@@ -117,7 +152,9 @@ export async function queryHybridBotanicalKnowledge(
   let denseCandidates: { title: string; url: string; content: string }[] = [];
   let sparseCandidates: Chunk[] = [];
 
-  // 1. Try Dense Semantic Search (Remote HuggingFace + Pinecone)
+  // ---------------------------------------------------------
+  // שלב 1: חיפוש סמנטי דרך Vector DB (Pinecone)
+  // ---------------------------------------------------------
   try {
     const vector = await getEmbedding(userQuery, true);
 
@@ -145,7 +182,10 @@ export async function queryHybridBotanicalKnowledge(
     console.warn('[hybrid-store] Dense semantic search failed (HuggingFace/Pinecone error). Falling back to pure BM25 keyword search:', error);
   }
 
-  // 2. Try Sparse Keyword Search (Local BM25 query) — bilingual: search with both original and translated query
+  // ---------------------------------------------------------
+  // שלב 2: חיפוש מילות מפתח מדויקות במטמון המקומי (BM25)
+  // מתבצע חיפוש כפול גם עבור מונח המקור וגם עבור המונח המתורגם.
+  // ---------------------------------------------------------
   try {
     const bm25 = getBM25Instance();
     if (bm25) {
@@ -156,7 +196,7 @@ export async function queryHybridBotanicalKnowledge(
         const secondaryResults = bm25.search(secondaryQuery, 20).map(res => res.chunk);
         console.info(`[hybrid-store] BM25 secondary (bilingual) search found ${secondaryResults.length} sparse candidates.`);
 
-        // Merge and deduplicate: primary results first, then any unique secondary results
+        // איחוד תוצאות: תוצאות שאילתה ראשית קודם, אח"כ השאילתה המשנית
         const seenKeys = new Set(primaryResults.map(c => `${c.url}::${c.title}`));
         const merged = [...primaryResults];
         for (const chunk of secondaryResults) {
@@ -177,30 +217,35 @@ export async function queryHybridBotanicalKnowledge(
     console.error('[hybrid-store] Local BM25 search failed:', error);
   }
 
-  // 3. Fail-safe: if both returned absolutely nothing, output warning
+  // הגנת קריסה: אם שני המנועים לא החזירו כלום
   if (denseCandidates.length === 0 && sparseCandidates.length === 0) {
     console.warn('[hybrid-store] Both dense and sparse search returned zero results.');
     return [];
   }
 
-  // Filter out any noisy sitemap URLs from both candidate lists before fusion
+  // סינון רעשים של דפי SITEMAP שאולי נשאבו בטעות
   const isCleanUrl = (url: string) => !url.includes('sitemap') && !url.includes('מפת-אתר') && !url.includes('מפת_אתר');
   denseCandidates = denseCandidates.filter(c => isCleanUrl(c.url));
   sparseCandidates = sparseCandidates.filter(c => isCleanUrl(c.url));
 
-  // 4. Blend dense and sparse results using Reciprocal Rank Fusion
+  // ---------------------------------------------------------
+  // שלב 3: מיזוג התוצאות בעזרת Reciprocal Rank Fusion
+  // ---------------------------------------------------------
   const fusedResults = reciprocalRankFusion(
     denseCandidates,
     sparseCandidates,
-    30,   // RRF constant k
-    1.5,  // Dense weight (multilingual semantic — works cross-language)
-    1.0   // BM25 weight (keyword match — monolingual, complementary)
+    30,   // קבוע RRF
+    1.5,  // משקל סמנטי - מקבל קצת יותר משקל כדי לעזור בחיפוש רב-לשוני
+    1.0   // משקל למילות מפתח מדויקות
   );
 
-  // 5. Diversify: limit to max 2 chunks per URL to ensure results come from
-  //    different articles/plants (prevents 5 chunks from the same Bacopa article)
+  // ---------------------------------------------------------
+  // שלב 4: גיוון (Diversification) - הגבלת התוצאות ל-2 פסקאות גג מאותו מאמר
+  // כדי לא להציף את ה-LLM בטקסט מיותר מאותו המקור על חשבון מקורות אחרים
+  // ---------------------------------------------------------
   const urlCounts = new Map<string, number>();
   const diverseResults: { title: string; url: string; content: string }[] = [];
+  
   for (const doc of fusedResults) {
     const count = urlCounts.get(doc.url) || 0;
     if (count < 2) {
@@ -213,3 +258,4 @@ export async function queryHybridBotanicalKnowledge(
   console.info(`[hybrid-store] Returning ${diverseResults.length} diverse results (from ${urlCounts.size} unique URLs).`);
   return diverseResults;
 }
+

@@ -1,16 +1,28 @@
-// Singleton placeholder for local model backup
+// -----------------------------------------------------------------------------
+// מחולל הוקטורים (Vector Embeddings Generator)
+// -----------------------------------------------------------------------------
+// קובץ זה אחראי לקחת טקסט חופשי (שאילתה או פסקת מידע) ולהפוך אותו
+// למערך מתמטי של 384 מספרים (וקטור צפוף) בעזרת מודל ה-AI "multilingual-e5-small".
+//
+// מתחבר ל:
+// 1. API חיצוני של HuggingFace (בעדיפות ראשונה, חוסך משאבי שרת).
+// 2. מנוע ONNX מקומי (Xenova/transformers) כגיבוי רק בסביבת פיתוח/סריקה.
+// -----------------------------------------------------------------------------
+
+// משתנה גלובלי (Singleton) להחזקת המודל המקומי בזיכרון, אם הופעל הגיבוי
 let localExtractor: any = null;
 
-// Read Hugging Face authorization tokens from environment variables, filtering 'none' fallbacks
+// קריאת האסימון (Token) של Hugging Face ממשתני הסביבה
 const rawToken = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || '';
 const HF_TOKEN = rawToken.toLowerCase() === 'none' ? '' : rawToken;
 
 /**
- * Generates a 384-dimensional vector embedding for the input text using multilingual-e5-small.
- * Uses a robust, zero-cold-start hybrid approach with active loading retries:
- * 1. Queries the remote Hugging Face Inference API (instant, no local execution/memory overhead).
- * 2. Safe retries if the remote model is currently loading (cold start on Hugging Face).
- * 3. Falls back to local WASM execution via @xenova/transformers ONLY on local machine (disabled in production serverless).
+ * פונקציה: getEmbedding
+ * מה היא עושה: מייצרת וקטור סמנטי של 384 ממדים.
+ * למה היא חכמה (Hybrid Approach):
+ * 1. מנסה קודם את שרתי HuggingFace בחינם (ללא עומס זיכרון על השרת שלנו).
+ * 2. מטפלת לבד במקרים שהמודל שם "מתעורר משינה" (Cold Start) ע"י מנגנון השהיה (Retry).
+ * 3. נופלת לגיבוי עיבוד מקומי (CPU) *רק* על המחשב המקומי ולא בייצור (Serverless), כדי למנוע קריסות של זיכרון ב-Lambda.
  */
 export async function getEmbedding(text: string, isQuery = true): Promise<number[]> {
   // Multilingual-E5 models require queries to be prefixed with "query: " and documents/passages with "passage: "
