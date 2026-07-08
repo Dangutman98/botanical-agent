@@ -108,7 +108,6 @@ resource "aws_lambda_function" "app" {
       NODE_ENV       = "production"
       PORT           = "3000"
       GROQ_API_KEY   = var.groq_api_key
-      JINA_API_KEY   = var.jina_api_key
       PINECONE_API_KEY = var.pinecone_api_key
       PINECONE_HOST  = var.pinecone_host
     }

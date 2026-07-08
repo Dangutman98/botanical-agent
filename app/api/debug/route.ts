@@ -7,8 +7,8 @@ export async function GET() {
   const pineconeHost = process.env.PINECONE_HOST || '';
 
   results['env'] = {
-    GROQ_API_KEY: groqKey ? `✅ present (${groqKey.slice(0, 8)}...)` : '❌ MISSING',
-    PINECONE_API_KEY: pineconeKey ? `✅ present (${pineconeKey.slice(0, 8)}...)` : '❌ MISSING',
+    GROQ_API_KEY: groqKey ? `✅ present (${groqKey.slice(0, 4)}...${groqKey.slice(-4)})` : '❌ MISSING',
+    PINECONE_API_KEY: pineconeKey ? `✅ present (${pineconeKey.slice(0, 4)}...${pineconeKey.slice(-4)})` : '❌ MISSING',
     PINECONE_HOST: pineconeHost ? `✅ ${pineconeHost}` : '❌ MISSING',
   };
 

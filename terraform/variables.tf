@@ -17,12 +17,7 @@ variable "groq_api_key" {
   default     = "managed-manually"
 }
 
-variable "jina_api_key" {
-  description = "Jina AI API key for web search"
-  type        = string
-  sensitive   = true
-  default     = "managed-manually"
-}
+
 
 variable "pinecone_api_key" {
   description = "Pinecone API key for vector database"
