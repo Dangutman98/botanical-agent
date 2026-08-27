@@ -65,10 +65,15 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000) to view the application.
 
 ### 4. Run the Crawler & Rebuild Cache (Optional)
-To trigger the botanical crawler and ingest new data, set `INGESTION_SECRET` to match your
-`.env.local` value and run it with `tsx` (it imports the TypeScript RAG modules directly):
+The crawler is a standalone crawl-and-validate pass — it doesn't need the dev server running
+and doesn't call any embedding API. It writes validated chunks to `data/crawled-chunks.jsonl`
+as it goes (safe to interrupt) and compacts them into `lib/rag/chunks.json` at the end:
 ```bash
-INGESTION_SECRET=your_ingestion_secret npx tsx scripts/crawl-all.ts
+npx tsx scripts/crawl-all.ts
+```
+If a run was interrupted before compacting, finish it without re-crawling:
+```bash
+npx tsx scripts/crawl-all.ts --compact
 ```
 
 ---

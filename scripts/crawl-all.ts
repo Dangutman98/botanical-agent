@@ -1,10 +1,18 @@
 /**
- * crawl-all.ts — Full botanical knowledge crawler (rebuilt)
+ * crawl-all.ts — Full botanical knowledge crawler (rebuilt, batch pipeline)
  *
  * Discovers URLs via sitemaps, respects robots.txt, scrapes content with the
- * correct charset, chunks it along real sentence/paragraph boundaries, runs
- * every candidate through the corpus validation gate, and ingests into
- * Pinecone + the local BM25 cache via POST /api/ingestion.
+ * correct charset, chunks it along real sentence/paragraph boundaries, and
+ * runs every candidate through the corpus validation gate.
+ *
+ * This is a crawl-and-validate pass ONLY. It does not embed or touch Pinecone
+ * (that's a separate batch-embedding step) and does not require the dev
+ * server. Validated chunks are appended to a JSONL file as they're produced
+ * (so an interrupted run loses nothing already written), and URL-level
+ * progress is tracked in ingested_urls.json so a re-run resumes rather than
+ * re-fetching. At the end, the JSONL is compacted into lib/rag/chunks.json
+ * in one shot — this replaces the old design, which rewrote the entire 27MB
+ * chunks.json on every single chunk.
  *
  * Rebuilt after discovering the previous version corrupted 68% of the corpus
  * (naturopedia.com served windows-1255, decoded here as UTF-8) and structurally
@@ -12,7 +20,6 @@
  * string the old crawler stripped before filtering).
  *
  * Run: npx tsx scripts/crawl-all.ts
- * Requirements: dev server running on localhost:3000, INGESTION_SECRET set.
  */
 
 import fs from 'fs';
@@ -23,8 +30,9 @@ import { chunkText } from '../lib/rag/chunker';
 import { validateChunk } from '../lib/rag/corpus-validate';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const INGESTION_URL = 'http://127.0.0.1:3000/api/ingestion';
 const INGESTED_URLS_FILE = path.join(__dirname, '..', 'data', 'ingested_urls.json');
+const CRAWLED_CHUNKS_JSONL = path.join(__dirname, '..', 'data', 'crawled-chunks.jsonl');
+const CHUNKS_OUTPUT_FILE = path.join(__dirname, '..', 'lib', 'rag', 'chunks.json');
 const REQUEST_DELAY_MS = 1200; // polite delay between page fetches
 const MAX_URLS_PER_DOMAIN = 800;
 const CHUNK_OPTIONS = { targetSize: 1000, maxSize: 1500, minSize: 200 };
@@ -268,26 +276,40 @@ async function extractContent(url: string, selector: string): Promise<{ title: s
   return { title, content };
 }
 
-// ─── Ingest one chunk ─────────────────────────────────────────────────────────
-async function ingestChunk(title: string, url: string, content: string) {
-  const secret = process.env.INGESTION_SECRET;
-  if (!secret) {
-    throw new Error('INGESTION_SECRET env var is required to run the crawler (see /api/ingestion auth).');
+// ─── Append one validated chunk to the JSONL output ────────────────────────────
+function appendChunk(title: string, url: string, content: string): void {
+  const id = Buffer.from(url + title).toString('base64').slice(0, 50);
+  fs.appendFileSync(CRAWLED_CHUNKS_JSONL, JSON.stringify({ id, title, url, content }) + '\n', 'utf-8');
+}
+
+// ─── Compact the append-only JSONL into the single chunks.json the app reads ───
+function compactJsonlToChunksFile(): number {
+  if (!fs.existsSync(CRAWLED_CHUNKS_JSONL)) return 0;
+  const lines = fs.readFileSync(CRAWLED_CHUNKS_JSONL, 'utf-8').split('\n').filter(Boolean);
+  const byId = new Map<string, unknown>();
+  for (const line of lines) {
+    try {
+      const chunk = JSON.parse(line) as { id: string };
+      byId.set(chunk.id, chunk); // last write for a given id wins
+    } catch {
+      // A line truncated by an interrupted run (e.g. process killed mid-append) is
+      // simply skipped rather than aborting the whole compaction.
+    }
   }
-  const res = await fetch(INGESTION_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-ingestion-secret': secret },
-    body: JSON.stringify({ title, url, content }),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Ingestion failed: ${res.status} ${err}`);
-  }
-  return res.json();
+  const chunks = [...byId.values()];
+  fs.writeFileSync(CHUNKS_OUTPUT_FILE, JSON.stringify(chunks, null, 2), 'utf-8');
+  return chunks.length;
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
+  if (process.argv.includes('--compact')) {
+    console.log('Compacting existing crawled-chunks.jsonl into chunks.json (no crawling)...');
+    const count = compactJsonlToChunksFile();
+    console.log(`Wrote ${count} chunks to ${CHUNKS_OUTPUT_FILE}`);
+    return;
+  }
+
   console.log('Botanical Knowledge Crawler (rebuilt) - Starting\n');
 
   let ingestedUrls = new Set<string>();
@@ -353,15 +375,14 @@ async function main() {
             continue;
           }
           try {
-            await ingestChunk(candidate.title, candidate.url, candidate.content);
+            appendChunk(candidate.title, candidate.url, candidate.content);
             accepted++;
             totalChunks++;
-            await sleep(400);
           } catch (e) {
-            console.error(`\n    Chunk ${ci + 1} ingestion failed: ${errMsg(e)}`);
+            console.error(`\n    Chunk ${ci + 1} write failed: ${errMsg(e)}`);
           }
         }
-        console.log(`${accepted} chunk(s) ingested, ${rejected} rejected by validation`);
+        console.log(`${accepted} chunk(s) written, ${rejected} rejected by validation`);
 
         if (accepted > 0) {
           ingestedUrls.add(url);
@@ -375,11 +396,15 @@ async function main() {
     }
   }
 
+  console.log('\nCompacting JSONL into chunks.json...');
+  const finalChunkCount = compactJsonlToChunksFile();
+
   console.log(`\n${'='.repeat(60)}\nCRAWL COMPLETE`);
-  console.log(`  New pages ingested : ${totalNew}`);
-  console.log(`  New chunks created : ${totalChunks}`);
-  console.log(`  Chunks rejected    : ${totalRejected}`);
-  console.log(`  Total URLs tracked : ${ingestedUrls.size}`);
+  console.log(`  New pages crawled this run : ${totalNew}`);
+  console.log(`  New chunks written this run: ${totalChunks}`);
+  console.log(`  Chunks rejected            : ${totalRejected}`);
+  console.log(`  Total URLs tracked         : ${ingestedUrls.size}`);
+  console.log(`  Final chunks.json size     : ${finalChunkCount} chunks`);
   console.log('='.repeat(60));
 }
 
