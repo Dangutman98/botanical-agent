@@ -9,6 +9,7 @@ const nextConfig = {
   outputFileTracingIncludes: {
     '/api/chat': ['./lib/rag/chunks.json'],
     '/api/ingestion': ['./lib/rag/chunks.json'],
+    '/api/debug': ['./lib/rag/chunks.json'],
   },
 };
 

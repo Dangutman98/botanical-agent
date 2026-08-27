@@ -1,6 +1,36 @@
 export async function GET() {
   const results: Record<string, unknown> = {};
 
+  // 0. Diagnose whether the BM25 corpus file actually made it into this deployment's
+  // serverless bundle. Added while tracking down a bug where chunks.json wasn't traced into
+  // the Vercel function bundle, causing every keyword search to silently return zero results.
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const chunksPath = path.join(process.cwd(), 'lib', 'rag', 'chunks.json');
+    const exists = fs.existsSync(chunksPath);
+    if (exists) {
+      const stat = fs.statSync(chunksPath);
+      const { BM25 } = await import('@/lib/rag/bm25');
+      const chunks = JSON.parse(fs.readFileSync(chunksPath, 'utf-8'));
+      const bm25 = new BM25(chunks);
+      const sample = bm25.search('כורכום', 3);
+      results['corpus'] = {
+        chunksJsonPath: chunksPath,
+        exists: true,
+        sizeMB: (stat.size / 1024 / 1024).toFixed(2),
+        chunkCount: chunks.length,
+        sampleQuery: 'כורכום',
+        sampleMatches: sample.length,
+        sampleTitles: sample.map((s) => s.chunk.title.slice(0, 60)),
+      };
+    } else {
+      results['corpus'] = { chunksJsonPath: chunksPath, exists: false };
+    }
+  } catch (e: any) {
+    results['corpus'] = { error: e.message };
+  }
+
   // 1. Check env vars presence (masked)
   const groqKey = process.env.GROQ_API_KEY || '';
   const pineconeKey = process.env.PINECONE_API_KEY || '';
