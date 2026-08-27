@@ -13,6 +13,18 @@ import { getEmbedding } from '@/lib/rag/embeddings';
  */
 export async function handleIngestionRequest(req: Request) {
   try {
+    // This endpoint writes directly into the Pinecone index; without a secret check it was an
+    // open write endpoint anyone on the internet could use to poison the knowledge base.
+    const configuredSecret = process.env.INGESTION_SECRET;
+    if (!configuredSecret) {
+      console.error('[Ingestion] INGESTION_SECRET is not configured — refusing all requests.');
+      return Response.json({ error: 'Ingestion is not configured' }, { status: 503 });
+    }
+    const providedSecret = req.headers.get('x-ingestion-secret');
+    if (providedSecret !== configuredSecret) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body: { title: string; url: string; content: string } = await req.json();
 
     if (!body.title || !body.url || !body.content) {

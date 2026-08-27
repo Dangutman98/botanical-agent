@@ -4,15 +4,22 @@ import { queryHybridBotanicalKnowledge } from '@/lib/rag/hybrid-store';
 
 const SYSTEM_PROMPT = `You are an expert botanical and herbal medicine assistant. You respond ONLY in Hebrew.
 
+GROUNDING (STRICT — highest priority rule):
+- Answer ONLY using the provided Context Material. Do NOT supplement with your own botanical or medical
+  knowledge, even for general questions, even if you are confident the information is correct.
+- If the Context Material does not contain enough information to answer the question, say so explicitly
+  in Hebrew (e.g. "אין לי מספיק מידע על כך במאגר הנוכחי") instead of guessing or filling gaps from memory.
+- If the user asks "Are there more?" (האם יש עוד?) and the context has no additional plants, say plainly
+  that the database has nothing further — do not invent additional plants from your own knowledge.
+- This assistant is not a substitute for professional medical advice. Never state or imply a dosage,
+  drug interaction, or safety claim that is not directly supported by the Context Material.
+
 HOW TO ANSWER:
 - CAREFULLY READ INTENT: Pay close attention to whether the user asks for plants that TREAT/HELP a condition vs plants that CAUSE/WORSEN a condition. Do not provide treatments if they asked for causes. If the sources only have treatments, explicitly state that the database only contains information on treating the condition.
 - NAME MATCHING ACCURACY: You MUST accurately pair the Hebrew name with its correct scientific name. NEVER mix them up. For example, do not assign the name "Ashwagandha" to "פשטה משתרעת" (which is Bacopa).
-- Use the provided Context Material as your PRIMARY source of information.
-- You may SUPPLEMENT with your own botanical/medical knowledge when the sources are insufficient — especially for general questions asking about multiple plants.
-- When the user asks a GENERAL question (e.g., "איזה צמחים עוזרים לסטרס?"), list MULTIPLE specific plants with their Hebrew name, scientific name, and a brief description of their benefits. Aim for at least 3-5 plants.
+- When the user asks a GENERAL question (e.g., "איזה צמחים עוזרים לסטרס?"), list the specific plants that ARE present in the Context Material, with their Hebrew name, scientific name, and a brief description grounded in the sources. If fewer than 3 plants are covered by the sources, list only those and say the database covers a limited number for this topic.
 - When the user asks about a SPECIFIC plant by name, focus ONLY on that plant. Do NOT switch to a different plant.
 - For follow-up questions with pronouns like "אותו" or "שלו", refer to the plant discussed earlier in the conversation.
-- If the user asks "Are there more?" (האם יש עוד?), use your own expert knowledge to list additional relevant plants that were not mentioned previously, rather than just saying no.
 
 - NEVER translate scientific Latin plant names into literal Hebrew words (e.g., NEVER translate "Inula" to "חמצן", "Oxygen", etc.). If you do not know the accepted Hebrew botanical name, just use the Latin name.
 - NEVER confuse food recipes with plants! Do not treat words like "שקשוקה" (Shakshuka), "שייק" (Smoothie), or "מרק" (Soup) as plant names.
@@ -23,11 +30,49 @@ HOW TO ANSWER:
 
 SOURCES SECTION:
 End every answer with a "מקורות:" section listing the sources that contributed to your answer.
-Format: * Article Title - https://... 
+Format: * Article Title - https://...
 You MUST output the EXACT, REAL web address from the context starting with "http". NEVER just output [1], [2], etc. You MUST include the full http URL so the user can click it!
 Use the REAL article title and REAL link from the context blocks. Never write "Page Title", "Site Name", or the literal word "URL".`;
 
-const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+const NO_CONTEXT_RESPONSE =
+  'אין לי מספיק מידע על כך במאגר הנוכחי. נסו לנסח את השאלה אחרת או לשאול על צמח ספציפי אחר.';
+
+// Groq deprecates/removes models with little notice (llama-3.1-8b-instant, the previous default,
+// was silently returning 404s in production before this check existed). Fail loudly instead of
+// discovering it via a wall of 500s.
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+const KNOWN_GOOD_GROQ_MODELS = new Set([
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+  'qwen/qwen3.8-27b',
+  'qwen/qwen3.6-27b',
+  'groq/compound',
+  'groq/compound-mini',
+]);
+let modelAvailabilityChecked = false;
+
+async function assertGroqModelAvailable(groq: Groq): Promise<void> {
+  if (modelAvailabilityChecked) return;
+  modelAvailabilityChecked = true;
+
+  if (KNOWN_GOOD_GROQ_MODELS.has(GROQ_MODEL)) return; // fast path, no network call
+
+  try {
+    const models = await groq.models.list();
+    const available = new Set(models.data.map((m) => m.id));
+    if (!available.has(GROQ_MODEL)) {
+      console.error(
+        `[chat] FATAL: configured GROQ_MODEL "${GROQ_MODEL}" is not available on this Groq account. ` +
+          `Available models: ${[...available].join(', ')}`
+      );
+      throw new Error(`Groq model "${GROQ_MODEL}" is not available. Update GROQ_MODEL.`);
+    }
+  } catch (error) {
+    // Network/auth failure checking availability shouldn't block a request that might still work;
+    // an unknown model failure will still surface loudly from the completion call itself.
+    console.warn('[chat] Could not verify Groq model availability:', error);
+  }
+}
 
 type ChatRequest = {
   message: string;
@@ -59,15 +104,18 @@ export async function handleChatRequest(req: Request) {
     console.info('[chat] Querying hybrid vector store...');
     const contextDocs = await queryHybridBotanicalKnowledge(resolvedQuery, 4, secondaryQuery || undefined);
 
-    let contextBlock = '';
-    if (contextDocs.length > 0) {
-      contextBlock = '\n\nContext Material:\n' +
-        contextDocs.map((d, i) =>
-          `[${i + 1}] ${d.title}\nURL: ${d.url}\n${d.content.slice(0, 500)}`
-        ).join('\n\n');
-    } else {
-      contextBlock = '\n\nContext Material:\nNo relevant sources were found in the knowledge base.';
+    // Code-level grounding guard: with zero retrieved documents there is nothing to ground an
+    // answer in, so refuse before ever calling the LLM. This is a hard guarantee, not a prompt
+    // request the model can talk itself out of.
+    if (contextDocs.length === 0) {
+      console.warn('[chat] No context documents retrieved — refusing without calling the LLM.');
+      return Response.json({ text: NO_CONTEXT_RESPONSE, sourcesFetched: 0, grounded: false });
     }
+
+    const contextBlock = '\n\nContext Material:\n' +
+      contextDocs.map((d, i) =>
+        `[${i + 1}] ${d.title}\nURL: ${d.url}\n${d.content.slice(0, 500)}`
+      ).join('\n\n');
 
     const enrichedSystemPrompt = SYSTEM_PROMPT + contextBlock;
 
@@ -86,6 +134,7 @@ export async function handleChatRequest(req: Request) {
     messages.push({ role: 'user', content: message });
 
     const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'dummy-build-key' });
+    await assertGroqModelAvailable(groq);
 
     console.info('[chat] Sending to Groq for final answer...');
     const completion = await groq.chat.completions.create({

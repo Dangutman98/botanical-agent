@@ -231,9 +231,13 @@ function extractContent(html, selector) {
 
 // ─── Ingest one chunk ─────────────────────────────────────────────────────────
 async function ingestChunk(title, url, content) {
+  const secret = process.env.INGESTION_SECRET;
+  if (!secret) {
+    throw new Error('INGESTION_SECRET env var is required to run the crawler (see /api/ingestion auth).');
+  }
   const res = await fetch(INGESTION_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-ingestion-secret': secret },
     body: JSON.stringify({ title, url, content }),
   });
   if (!res.ok) {

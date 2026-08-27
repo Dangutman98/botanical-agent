@@ -724,6 +724,14 @@ export default function Chat() {
           <div className="w-20 lg:w-auto" />
         </header>
 
+        {/* Persistent medical disclaimer banner */}
+        <div
+          className="px-4 py-2 text-center text-[11px] font-medium border-b"
+          style={{ background: 'var(--accent-light)', color: 'var(--accent)', borderColor: 'var(--accent-light)' }}
+        >
+          ⚠️ המידע כאן מבוסס על מאגר מקורות ואינו תחליף לייעוץ רפואי מקצועי. יש להתייעץ עם רופא/ה או רוקח/ת לפני שימוש בכל צמח מרפא.
+        </div>
+
         {/* Message Feed panel */}
         <main className="flex-1 overflow-y-auto px-4 py-6 max-w-2xl mx-auto w-full space-y-4">
           {messages.length === 0 && (
