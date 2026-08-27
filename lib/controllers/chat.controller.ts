@@ -9,6 +9,9 @@ GROUNDING (STRICT — highest priority rule):
   knowledge, even for general questions, even if you are confident the information is correct.
 - If the Context Material does not contain enough information to answer the question, say so explicitly
   in Hebrew (e.g. "אין לי מספיק מידע על כך במאגר הנוכחי") instead of guessing or filling gaps from memory.
+  In that case, do NOT include a "מקורות:" section at all — the sources you were given were judged
+  insufficient, so listing them as if they supported an answer would be misleading. Only list sources
+  you actually relied on to construct a real answer.
 - If the user asks "Are there more?" (האם יש עוד?) and the context has no additional plants, say plainly
   that the database has nothing further — do not invent additional plants from your own knowledge.
 - This assistant is not a substitute for professional medical advice. Never state or imply a dosage,
@@ -29,7 +32,9 @@ HOW TO ANSWER:
 - NEVER format as a table unless the user explicitly asks for one.
 
 SOURCES SECTION:
-End every answer with a "מקורות:" section listing the sources that contributed to your answer.
+If — and only if — you gave a real, grounded answer, end it with a "מקורות:" section listing the
+sources that actually contributed to that answer. If you said the database has insufficient
+information, skip this section entirely (see GROUNDING above).
 Format: * Article Title - https://...
 You MUST output the EXACT, REAL web address from the context starting with "http". NEVER just output [1], [2], etc. You MUST include the full http URL so the user can click it!
 Use the REAL article title and REAL link from the context blocks. Never write "Page Title", "Site Name", or the literal word "URL".`;
@@ -109,15 +114,7 @@ export async function handleChatRequest(req: Request) {
     // request the model can talk itself out of.
     if (contextDocs.length === 0) {
       console.warn('[chat] No context documents retrieved — refusing without calling the LLM.');
-      // TEMP diagnostic fields (resolvedQuery/secondaryQuery) — remove once the
-      // production zero-results investigation is closed out.
-      return Response.json({
-        text: NO_CONTEXT_RESPONSE,
-        sourcesFetched: 0,
-        grounded: false,
-        _debugResolvedQuery: resolvedQuery,
-        _debugSecondaryQuery: secondaryQuery,
-      });
+      return Response.json({ text: NO_CONTEXT_RESPONSE, sourcesFetched: 0, grounded: false });
     }
 
     const contextBlock = '\n\nContext Material:\n' +
