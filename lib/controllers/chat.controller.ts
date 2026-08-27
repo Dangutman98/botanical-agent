@@ -109,7 +109,15 @@ export async function handleChatRequest(req: Request) {
     // request the model can talk itself out of.
     if (contextDocs.length === 0) {
       console.warn('[chat] No context documents retrieved — refusing without calling the LLM.');
-      return Response.json({ text: NO_CONTEXT_RESPONSE, sourcesFetched: 0, grounded: false });
+      // TEMP diagnostic fields (resolvedQuery/secondaryQuery) — remove once the
+      // production zero-results investigation is closed out.
+      return Response.json({
+        text: NO_CONTEXT_RESPONSE,
+        sourcesFetched: 0,
+        grounded: false,
+        _debugResolvedQuery: resolvedQuery,
+        _debugSecondaryQuery: secondaryQuery,
+      });
     }
 
     const contextBlock = '\n\nContext Material:\n' +
