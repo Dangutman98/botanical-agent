@@ -6,6 +6,8 @@
 // המנוע תומך בעברית ואנגלית, ורץ כולו בזיכרון (In-Memory).
 // -----------------------------------------------------------------------------
 
+import { normalizeHebrewToken } from './hebrew';
+
 export interface Chunk {
   id: string;
   title: string;
@@ -43,7 +45,11 @@ export class BM25 {
     // Lowercase and extract Hebrew & English alphanumeric words
     const cleanText = text.toLowerCase();
     const matches = cleanText.match(/[\w\u0590-\u05ff]+/g);
-    return matches || [];
+    if (!matches) return [];
+    // Normalize Hebrew prefixes/suffixes (e.g. a bare word and its "with a prefix letter
+    // attached" form) so they can share an index term. See lib/rag/hebrew.ts for details
+    // and known limitations. No-op for non-Hebrew tokens.
+    return matches.map(normalizeHebrewToken);
   }
 
   /**

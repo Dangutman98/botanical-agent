@@ -65,9 +65,10 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000) to view the application.
 
 ### 4. Run the Crawler & Rebuild Cache (Optional)
-To trigger the botanical crawler and ingest new data:
+To trigger the botanical crawler and ingest new data, set `INGESTION_SECRET` to match your
+`.env.local` value and run it with `tsx` (it imports the TypeScript RAG modules directly):
 ```bash
-node scripts/crawl-all.js
+INGESTION_SECRET=your_ingestion_secret npx tsx scripts/crawl-all.ts
 ```
 
 ---

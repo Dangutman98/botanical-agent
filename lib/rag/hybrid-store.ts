@@ -96,8 +96,12 @@ export function reciprocalRankFusion(
   denseResults: { title: string; url: string; content: string }[],
   sparseResults: Chunk[],
   rrfK = 30,
-  denseWeight = 0.5,
-  bm25Weight = 2.0
+  // Defaults matched to the only current call site (below): dense gets a modest edge to help
+  // cross-lingual matching, bm25 keeps exact-keyword weight. These previously read 0.5/2.0 —
+  // the exact opposite ratio of what every real call actually passed — which was never a live
+  // bug (the call site always overrode them) but was self-contradictory and misleading.
+  denseWeight = 1.5,
+  bm25Weight = 1.0
 ): { title: string; url: string; content: string }[] {
   const scoreMap = new Map<string, { doc: { title: string; url: string; content: string }; score: number }>();
   const getDocKey = (url: string, title: string) => `${url}::${title}`;
