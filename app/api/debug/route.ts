@@ -31,6 +31,20 @@ export async function GET() {
     results['corpus'] = { error: e.message };
   }
 
+  // 0b. Exercise the actual retrieval function used by /api/chat (dense + sparse + RRF),
+  // not just a reimplementation, to see whether the real code path finds anything.
+  try {
+    const { queryHybridBotanicalKnowledge } = await import('@/lib/rag/hybrid-store');
+    const hybridResults = await queryHybridBotanicalKnowledge('כורכום', 4);
+    results['hybridRetrieval'] = {
+      sampleQuery: 'כורכום',
+      resultCount: hybridResults.length,
+      titles: hybridResults.map((r) => r.title.slice(0, 60)),
+    };
+  } catch (e: any) {
+    results['hybridRetrieval'] = { error: e.message };
+  }
+
   // 1. Check env vars presence (masked)
   const groqKey = process.env.GROQ_API_KEY || '';
   const pineconeKey = process.env.PINECONE_API_KEY || '';
