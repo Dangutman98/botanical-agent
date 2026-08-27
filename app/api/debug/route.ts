@@ -1,5 +1,7 @@
-export async function GET() {
+export async function GET(req: Request) {
   const results: Record<string, unknown> = {};
+  const url = new URL(req.url);
+  const testQuery = url.searchParams.get('q') || 'כורכום';
 
   // 0. Diagnose whether the BM25 corpus file actually made it into this deployment's
   // serverless bundle. Added while tracking down a bug where chunks.json wasn't traced into
@@ -14,13 +16,13 @@ export async function GET() {
       const { BM25 } = await import('@/lib/rag/bm25');
       const chunks = JSON.parse(fs.readFileSync(chunksPath, 'utf-8'));
       const bm25 = new BM25(chunks);
-      const sample = bm25.search('כורכום', 3);
+      const sample = bm25.search(testQuery, 3);
       results['corpus'] = {
         chunksJsonPath: chunksPath,
         exists: true,
         sizeMB: (stat.size / 1024 / 1024).toFixed(2),
         chunkCount: chunks.length,
-        sampleQuery: 'כורכום',
+        sampleQuery: testQuery,
         sampleMatches: sample.length,
         sampleTitles: sample.map((s) => s.chunk.title.slice(0, 60)),
       };
@@ -35,9 +37,9 @@ export async function GET() {
   // not just a reimplementation, to see whether the real code path finds anything.
   try {
     const { queryHybridBotanicalKnowledge } = await import('@/lib/rag/hybrid-store');
-    const hybridResults = await queryHybridBotanicalKnowledge('כורכום', 4);
+    const hybridResults = await queryHybridBotanicalKnowledge(testQuery, 4);
     results['hybridRetrieval'] = {
-      sampleQuery: 'כורכום',
+      sampleQuery: testQuery,
       resultCount: hybridResults.length,
       titles: hybridResults.map((r) => r.title.slice(0, 60)),
     };
