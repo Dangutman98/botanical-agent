@@ -29,7 +29,7 @@ async function testExtract() {
 
   try {
     console.log('1. Testing RAG hybrid store query...');
-    const contextDocs = await queryHybridBotanicalKnowledge(entity, 3);
+    const { results: contextDocs } = await queryHybridBotanicalKnowledge(entity, 3);
     console.log(`RAG returned ${contextDocs.length} documents.`);
 
     let contextBlock = '';

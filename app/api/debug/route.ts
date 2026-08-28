@@ -37,10 +37,11 @@ export async function GET(req: Request) {
   // not just a reimplementation, to see whether the real code path finds anything.
   try {
     const { queryHybridBotanicalKnowledge } = await import('@/lib/rag/hybrid-store');
-    const hybridResults = await queryHybridBotanicalKnowledge(testQuery, 4);
+    const { results: hybridResults, denseSearchDegraded } = await queryHybridBotanicalKnowledge(testQuery, 4);
     results['hybridRetrieval'] = {
       sampleQuery: testQuery,
       resultCount: hybridResults.length,
+      denseSearchDegraded,
       titles: hybridResults.map((r) => r.title.slice(0, 60)),
     };
   } catch (e: any) {

@@ -54,3 +54,6 @@ terraform/*.tfplan
 
 # raw crawler output (intermediate; lib/rag/chunks.json is the compacted, deployable artifact)
 data/crawled-chunks.jsonl
+
+# local ONNX model cache (embedding scripts)
+/.cache/

@@ -6,9 +6,9 @@ async function runTest() {
   console.log(`🔍 Running Hybrid Retrieval Test for query: "${query}"...\n`);
 
   try {
-    const results = await queryHybridBotanicalKnowledge(query, 3);
-    
-    console.log(`🏆 Top ${results.length} Fused Results (Semantic + Keyword):\n`);
+    const { results, denseSearchDegraded } = await queryHybridBotanicalKnowledge(query, 3);
+
+    console.log(`🏆 Top ${results.length} Fused Results (Semantic + Keyword)${denseSearchDegraded ? ' [dense search degraded]' : ''}:\n`);
     results.forEach((doc, idx) => {
       console.log(`[Rank ${idx + 1}] Title: ${doc.title}`);
       console.log(`URL: ${doc.url}`);

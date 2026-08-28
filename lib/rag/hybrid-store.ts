@@ -146,15 +146,25 @@ export function reciprocalRankFusion(
  * 
  * לאן מתחברת: מופעלת ע"י chat.controller.ts כאשר משתמש שולח הודעה.
  */
+export interface HybridQueryResult {
+  results: { title: string; url: string; content: string }[];
+  // True when dense (semantic) search couldn't run at all this request - e.g. the
+  // embedding API is unavailable - so results came from BM25 keyword search alone.
+  // Surfaced to the caller instead of being silently swallowed: a silent fallback here
+  // is exactly what let the previous HF endpoint sit dead in production for months.
+  denseSearchDegraded: boolean;
+}
+
 export async function queryHybridBotanicalKnowledge(
   userQuery: string,
   topK = 5,
   secondaryQuery?: string
-): Promise<{ title: string; url: string; content: string }[]> {
+): Promise<HybridQueryResult> {
   console.info('[hybrid-store] Querying hybrid store for:', userQuery);
 
   let denseCandidates: { title: string; url: string; content: string }[] = [];
   let sparseCandidates: Chunk[] = [];
+  let denseSearchDegraded = false;
 
   // ---------------------------------------------------------
   // שלב 1: חיפוש סמנטי דרך Vector DB (Pinecone)
@@ -181,9 +191,11 @@ export async function queryHybridBotanicalKnowledge(
       }));
     } else {
       console.warn('[hybrid-store] Pinecone query failed with status:', pineconeResponse.status);
+      denseSearchDegraded = true;
     }
   } catch (error) {
     console.warn('[hybrid-store] Dense semantic search failed (HuggingFace/Pinecone error). Falling back to pure BM25 keyword search:', error);
+    denseSearchDegraded = true;
   }
 
   // ---------------------------------------------------------
@@ -224,11 +236,14 @@ export async function queryHybridBotanicalKnowledge(
   // הגנת קריסה: אם שני המנועים לא החזירו כלום
   if (denseCandidates.length === 0 && sparseCandidates.length === 0) {
     console.warn('[hybrid-store] Both dense and sparse search returned zero results.');
-    return [];
+    return { results: [], denseSearchDegraded };
   }
 
   // סינון רעשים של דפי SITEMAP שאולי נשאבו בטעות
-  const isCleanUrl = (url: string) => !url.includes('sitemap') && !url.includes('מפת-אתר') && !url.includes('מפת_אתר');
+  // (the corpus's own validation gate now rejects these at ingest time; this is a
+  // defense-in-depth backstop, not the primary filter. Dropped the previous Hebrew
+  // substring checks - URLs are percent-encoded, so 'מפת-אתר' never matched a real URL.)
+  const isCleanUrl = (url: string) => !url.toLowerCase().includes('sitemap');
   denseCandidates = denseCandidates.filter(c => isCleanUrl(c.url));
   sparseCandidates = sparseCandidates.filter(c => isCleanUrl(c.url));
 
@@ -260,6 +275,6 @@ export async function queryHybridBotanicalKnowledge(
   }
 
   console.info(`[hybrid-store] Returning ${diverseResults.length} diverse results (from ${urlCounts.size} unique URLs).`);
-  return diverseResults;
+  return { results: diverseResults, denseSearchDegraded };
 }
 

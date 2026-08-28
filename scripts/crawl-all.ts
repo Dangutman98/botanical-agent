@@ -314,17 +314,29 @@ function compactJsonlToChunksFile(): number {
   const lines = fs.readFileSync(CRAWLED_CHUNKS_JSONL, 'utf-8').split('\n').filter(Boolean);
   // Dedupe by the full url+title pair (not the id) so a corrected id scheme, or any
   // future id-format change, can never silently reintroduce a collision here.
-  const byKey = new Map<string, unknown>();
+  const byKey = new Map<string, { title: string; url: string; content: string }>();
   for (const line of lines) {
     try {
-      const chunk = JSON.parse(line) as { url: string; title: string };
+      const chunk = JSON.parse(line) as { url: string; title: string; content: string };
       byKey.set(`${chunk.url}::${chunk.title}`, chunk); // last write for a given url+title wins
     } catch {
       // A line truncated by an interrupted run (e.g. process killed mid-append) is
       // simply skipped rather than aborting the whole compaction.
     }
   }
-  const chunks = [...byKey.values()];
+  // Regenerate id fresh from url+title rather than trusting whatever was stored on the
+  // JSONL line. Lines appended before the sha1-based id scheme existed carried the old
+  // lossy base64(url+title).slice(0,50) id, which collided across every chunk of a
+  // multi-chunk page - fine for JSONL storage (unused there), but Pinecone upsert
+  // overwrites by id, so those stale ids silently collapsed ~15,000 chunks down to
+  // ~3,500 distinct vectors on first upsert. Compaction is the one place all chunks
+  // pass through regardless of which crawler version produced them, so it's the right
+  // place to guarantee every id is derived from current, unique content - not a
+  // one-time data patch that the next crawl could quietly undo again.
+  const chunks = [...byKey.values()].map(({ title, url, content }) => ({
+    id: createHash('sha1').update(url + '::' + title).digest('hex').slice(0, 24),
+    title, url, content,
+  }));
   fs.writeFileSync(CHUNKS_OUTPUT_FILE, JSON.stringify(chunks, null, 2), 'utf-8');
   return chunks.length;
 }

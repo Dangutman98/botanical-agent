@@ -107,19 +107,25 @@ export async function handleChatRequest(req: Request) {
 
     // Step 2: Query hybrid vector store with the expanded bilingual queries
     console.info('[chat] Querying hybrid vector store...');
-    const contextDocs = await queryHybridBotanicalKnowledge(resolvedQuery, 4, secondaryQuery || undefined);
+    const { results: contextDocs, denseSearchDegraded } = await queryHybridBotanicalKnowledge(resolvedQuery, 4, secondaryQuery || undefined);
+    if (denseSearchDegraded) {
+      console.warn('[chat] Dense (semantic) search was unavailable this request — answering from BM25 keyword search alone.');
+    }
 
     // Code-level grounding guard: with zero retrieved documents there is nothing to ground an
     // answer in, so refuse before ever calling the LLM. This is a hard guarantee, not a prompt
     // request the model can talk itself out of.
     if (contextDocs.length === 0) {
       console.warn('[chat] No context documents retrieved — refusing without calling the LLM.');
-      return Response.json({ text: NO_CONTEXT_RESPONSE, sourcesFetched: 0, grounded: false });
+      return Response.json({ text: NO_CONTEXT_RESPONSE, sourcesFetched: 0, grounded: false, denseSearchDegraded });
     }
 
+    // Full document text, not truncated: precision over breadth. With only 4 documents
+    // retrieved, the answer is more often limited by a fact living past the old 500-char
+    // cutoff than by Groq's free-tier token budget.
     const contextBlock = '\n\nContext Material:\n' +
       contextDocs.map((d, i) =>
-        `[${i + 1}] ${d.title}\nURL: ${d.url}\n${d.content.slice(0, 500)}`
+        `[${i + 1}] ${d.title}\nURL: ${d.url}\n${d.content}`
       ).join('\n\n');
 
     const enrichedSystemPrompt = SYSTEM_PROMPT + contextBlock;
@@ -149,7 +155,7 @@ export async function handleChatRequest(req: Request) {
     });
 
     const text = completion.choices[0]?.message?.content ?? 'No response';
-    return Response.json({ text, sourcesFetched: contextDocs.length });
+    return Response.json({ text, sourcesFetched: contextDocs.length, denseSearchDegraded });
   } catch (error) {
     console.error('[chat] FATAL ERROR', { error });
     const errorMsg = error instanceof Error ? error.message : 'Agent failed';
