@@ -51,3 +51,6 @@ terraform/*.tfplan
 .vercel
 .env*.local
 .env*
+
+# raw crawler output (intermediate; lib/rag/chunks.json is the compacted, deployable artifact)
+data/crawled-chunks.jsonl

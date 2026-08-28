@@ -24,6 +24,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'crypto';
 import * as cheerio from 'cheerio';
 import { fetchAndDecode } from '../lib/rag/charset';
 import { chunkText } from '../lib/rag/chunker';
@@ -212,10 +213,18 @@ async function discoverUrlsFromSitemap(sitemapUrl: string, depth = 0): Promise<s
 // ─── Link crawler (for domains with no usable sitemap, e.g. naturopedia) ───────
 // Query strings are preserved throughout — the old crawler stripped them before
 // filtering, which is precisely why it could never reach naturopedia's articles.
+// A site serving identical content under both http:// and https:// (naturopedia.com
+// does) would otherwise get crawled and stored twice, once per scheme, as if they were
+// two different pages. Canonicalizing to https before every visited/discovered check
+// collapses them to one.
+function canonicalizeUrl(url: string): string {
+  return url.replace(/^http:\/\//, 'https://');
+}
+
 async function crawlLinks(seedUrl: string, isAllowedUrl: (url: string) => boolean, maxPages = 2000): Promise<string[]> {
   const discovered = new Set<string>();
-  const queue: string[] = [seedUrl];
-  const visited = new Set<string>([seedUrl]);
+  const queue: string[] = [canonicalizeUrl(seedUrl)];
+  const visited = new Set<string>([canonicalizeUrl(seedUrl)]);
   const domain = new URL(seedUrl).hostname;
 
   while (queue.length > 0 && discovered.size < maxPages) {
@@ -227,7 +236,7 @@ async function crawlLinks(seedUrl: string, isAllowedUrl: (url: string) => boolea
         try {
           const hrefAttr = $(el).attr('href');
           if (!hrefAttr) return;
-          const href = new URL(hrefAttr, url).href.split('#')[0];
+          const href = canonicalizeUrl(new URL(hrefAttr, url).href.split('#')[0]);
           if (new URL(href).hostname !== domain) return;
           if (visited.has(href)) return;
           visited.add(href);
@@ -257,9 +266,21 @@ async function extractContent(url: string, selector: string): Promise<{ title: s
   });
   const $ = cheerio.load(html);
 
+  // The [class*="X"] substring matchers below are meant for cookie-banner/popup/modal
+  // WIDGET divs, but WooCommerce (and other plugins) routinely add unrelated utility
+  // classes straight onto <body> that happen to contain these substrings — e.g.
+  // trifolium.co.il's <body class="... tbay-disable-ajax-popup-cart ...">. Without
+  // :not(body):not(html), that matched and removed the ENTIRE <body>, silently zeroing
+  // out every single chunk this crawler produced for that domain.
+  const NOT_ROOT = ':not(body):not(html)';
   $('nav, footer, header, script, style, .sidebar, .menu, .comments, #comments, ' +
-    '.wp-block-buttons, .sharedaddy, .related-posts, .widget, [class*="cookie"], ' +
-    '[class*="banner"], [class*="popup"], [class*="modal"], [class*="newsletter"], ' +
+    `.wp-block-buttons, .sharedaddy, .related-posts, .widget, [class*="cookie"]${NOT_ROOT}, ` +
+    `[class*="banner"]${NOT_ROOT}, [class*="popup"]${NOT_ROOT}, [class*="modal"]${NOT_ROOT}, [class*="newsletter"]${NOT_ROOT}, ` +
+    // naturopedia.com's accessibility widget ("increase/decrease text", "readable font",
+    // "high contrast", etc.) has no wrapping selector but every control shares this id
+    // prefix. Without removing it, it dominates the first chunk of every page (no other
+    // domain uses this prefix, so it's safe to remove unconditionally).
+    '[id^="sk-"], ' +
     'figure > figcaption').remove();
 
   let content = '';
@@ -277,8 +298,13 @@ async function extractContent(url: string, selector: string): Promise<{ title: s
 }
 
 // ─── Append one validated chunk to the JSONL output ────────────────────────────
+// The id is a hash (not a naive truncated base64 of url+title): a long URL alone
+// can exceed the ~37 input bytes that a 50-char base64 string represents, so a plain
+// slice collided every chunk from the same page onto one id (multi-chunk pages lost
+// everything but their last chunk during compaction). A hash spreads differences
+// across the whole output regardless of where in the input they occur.
 function appendChunk(title: string, url: string, content: string): void {
-  const id = Buffer.from(url + title).toString('base64').slice(0, 50);
+  const id = createHash('sha1').update(url + '::' + title).digest('hex').slice(0, 24);
   fs.appendFileSync(CRAWLED_CHUNKS_JSONL, JSON.stringify({ id, title, url, content }) + '\n', 'utf-8');
 }
 
@@ -286,17 +312,19 @@ function appendChunk(title: string, url: string, content: string): void {
 function compactJsonlToChunksFile(): number {
   if (!fs.existsSync(CRAWLED_CHUNKS_JSONL)) return 0;
   const lines = fs.readFileSync(CRAWLED_CHUNKS_JSONL, 'utf-8').split('\n').filter(Boolean);
-  const byId = new Map<string, unknown>();
+  // Dedupe by the full url+title pair (not the id) so a corrected id scheme, or any
+  // future id-format change, can never silently reintroduce a collision here.
+  const byKey = new Map<string, unknown>();
   for (const line of lines) {
     try {
-      const chunk = JSON.parse(line) as { id: string };
-      byId.set(chunk.id, chunk); // last write for a given id wins
+      const chunk = JSON.parse(line) as { url: string; title: string };
+      byKey.set(`${chunk.url}::${chunk.title}`, chunk); // last write for a given url+title wins
     } catch {
       // A line truncated by an interrupted run (e.g. process killed mid-append) is
       // simply skipped rather than aborting the whole compaction.
     }
   }
-  const chunks = [...byId.values()];
+  const chunks = [...byKey.values()];
   fs.writeFileSync(CHUNKS_OUTPUT_FILE, JSON.stringify(chunks, null, 2), 'utf-8');
   return chunks.length;
 }
